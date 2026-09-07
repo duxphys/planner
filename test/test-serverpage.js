@@ -67,6 +67,18 @@ console.log('markup in a plan is escaped:', !esc1.includes('<script>alert'));
 console.log('  and still readable       :', esc1.includes('&lt;script&gt;'));
 
 console.log('');
+console.log('--- an error must not describe my spreadsheet ---');
+const gsFull = fs.readFileSync('apps-script/Sync.gs', 'utf8');
+const doGet = gsFull.slice(gsFull.indexOf('function doGet'), gsFull.indexOf('function out('));
+const doPost = gsFull.slice(gsFull.indexOf('function doPost'), gsFull.indexOf('function doGet'));
+console.log('doGet never returns the exception :', !/error: String\(err\)/.test(doGet));
+console.log('doPost never returns it either    :', !/error: String\(err\)/.test(doPost));
+console.log('both log it where only I can see  :',
+  /console.error/.test(doGet) && /console.error/.test(doPost));
+const failed = page({ok: false, error: 'Exception: cannot open document 1AbC_secret'}).html;
+console.log('a failure page shows no detail    :', !failed.includes('1AbC_secret'));
+
+console.log('');
 console.log('--- one redaction, two doors ---');
 console.log('page() never redacts itself:',
   !/\.rel\b/.test(slice.slice(slice.indexOf('function page('))) );
