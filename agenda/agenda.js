@@ -25,7 +25,9 @@ function goToCurrentWeek(today) {
 }
 
 function spanHTML(s) {
+  if (s.priv && !staff) return '';                  // same reasoning as above
   const t = esc(s.t);
+  if (s.url && !staff && s.rel === false) return t; // a held link is words only
   if (s.url) {
     // on a colleague's link an unreleased link is still a working one, marked
     // so they can see it is not out yet
@@ -43,6 +45,9 @@ function linesHTML(ls) {
   if (!ls || !ls.length) return '';
   return ls.map(l => {
     if (!l) return '<div class="gap"></div>';
+    // the endpoint already strips these; refusing them here too means a bug
+    // upstream cannot put a private note in front of a student
+    if (l.private && !staff) return '';
     const cls = 'ln' + (l.bullet ? ' b' : '') + (staff && l.private ? ' pv' : '');
     return `<p class="${cls}">` + l.spans.map(spanHTML).join('') + '</p>';
   }).join('');
