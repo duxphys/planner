@@ -75,6 +75,30 @@ screens are wide, and a single column wasted most of one. It stacks below
 already maintains; the endpoint reads it and hands each class its own links
 plus anything marked ALL.
 
+## Two front doors
+
+The school blocks `github.io` on student Chromebooks. So the same agenda is
+served two ways:
+
+| | |
+|---|---|
+| `duxphys.github.io/planner/agenda/?class=p1` | the page fetches JSON |
+| `…/exec?class=p1&page=1` | the endpoint returns the finished page |
+
+The second is `script.google.com`, which the school cannot block without
+breaking Workspace. It is plain HTML with inline CSS — no fetch, no font file,
+no cache stamp — so it also works with JavaScript off. Use it in Schoology now;
+switch to the GitHub link if the block is ever lifted, or keep both.
+
+**Both consume the same redacted payload.** `readPublished()` and `staffFeed()`
+decide what a student may see; the two renderers only turn that into markup. A
+held link cannot leak through one and not the other. Each renderer also refuses
+private lines and held URLs on its own account, so a bug upstream cannot put one
+in front of a student.
+
+The served page uses the system font rather than Source Sans 3: Apps Script
+cannot serve a `.woff2`, and 60KB of base64 per Chromebook load is a poor trade.
+
 ## The colleague view
 
 `Planner sync ▸ Colleague link` gives a second, read-only secret. Added to an
