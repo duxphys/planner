@@ -153,6 +153,10 @@ function newLine() {
   if (frag.childNodes.length) next.appendChild(frag);
   else next.appendChild(document.createElement('br'));
   ln.parentNode.insertBefore(next, ln.nextSibling);
+  /* Splitting at the very start of a line leaves the original with no child
+     nodes, and a div with nothing in it has no height and no caret position —
+     so an up arrow sails straight past the blank line you just made. */
+  if (!ln.childNodes.length) ln.appendChild(document.createElement('br'));
   if (!ln.childNodes.length) ln.appendChild(document.createElement('br'));
 
   const put = document.createRange();
@@ -215,7 +219,7 @@ function closeCell() {
   if (hdr) {
     const tag = hdr.querySelector('.heldn');
     if (tag) tag.remove();
-    hdr.insertAdjacentHTML('afterbegin', heldTag(rec));
+    hdr.insertAdjacentHTML('beforeend', heldTag(rec));
   }
   // cancelling a day changes every block in that column, and closing a cell
   // only repaints itself — so the rest of the column has to be told
@@ -233,12 +237,54 @@ function closeCell() {
 
 let selKey = null;
 
-const cellKey = el => el.dataset.h + ':' + el.dataset.f;
-const gridPos = el => ({r: parseInt(el.style.gridRow, 10), c: parseInt(el.style.gridColumn, 10)});
+/* An editable field is often nested inside its grid cell — the day-note and
+   the school-level line both sit inside the header. Reading the position off
+   the field itself gave NaN, and sorting by NaN made Tab order effectively
+   random. Walk up to the grid child and read it from there. */
+const gridCell = el => el.closest ? (el.closest('.grid > div') || el) : el;
+const gridPos = el => {
+  const g = gridCell(el);
+  return {r: parseInt(g.style.gridRow, 10) || 0, c: parseInt(g.style.gridColumn, 10) || 0};
+};
+
+/* A cell that cannot be typed in is still somewhere the keyboard should reach,
+   so it needs a name too. Editable ones keep their record key; the rest are
+   known by where they sit. */
+const cellKey = el => el.dataset.h
+  ? el.dataset.h + ':' + el.dataset.f
+  : 'at:' + gridPos(el).r + '.' + gridPos(el).c;
+
+/* everything the arrows can land on: the whole grid, not just what accepts text */
+const NAVIGABLE = '.grid > div';
+function navCells() {
+  return [...document.querySelectorAll(NAVIGABLE)]
+    .filter(el => !el.classList.contains('corner'))
+    .map(el => {
+      const inner = el.querySelector('[data-f]');
+      return {el: inner || el, ...gridPos(el)};
+    });
+}
 
 function allCells() {
   return [...document.querySelectorAll(EDITABLE)]
     .map(el => ({el, ...gridPos(el)}));
+}
+
+/* A day header holds two fields; the arrows should reach both, so it counts
+   twice rather than once. */
+function navAll() {
+  const seen = new Set(), out = [];
+  for (const c of navCells()) {
+    const host = gridCell(c.el);
+    const fields = [...host.querySelectorAll('[data-f]')];
+    if (fields.length > 1) {
+      fields.forEach((f, i) => out.push({el: f, r: c.r, c: c.c, sub: i}));
+    } else {
+      out.push({...c, sub: 0});
+    }
+    seen.add(host);
+  }
+  return out;
 }
 
 function select(el) {
@@ -252,22 +298,30 @@ function select(el) {
 /* called by render(), which rebuilds the grid and loses the class */
 function restoreSelection() {
   if (!selKey) return;
-  const el = [...document.querySelectorAll(EDITABLE)]
-    .find(n => cellKey(n) === selKey);
+  const el = navAll().map(x => x.el).find(n => cellKey(n) === selKey);
   if (el) el.classList.add('sel'); else selKey = null;
 }
 
 function current() {
   if (editing) return editing;
-  return [...document.querySelectorAll(EDITABLE)]
-    .find(n => cellKey(n) === selKey) || null;
+  const all = navAll().map(x => x.el);
+  return all.find(n => cellKey(n) === selKey) || null;
 }
 
 function move(dr, dc) {
   const from = current();
-  const cells = allCells();
+  const cells = navAll();
   if (!from) { if (cells.length) select(cells[0].el); return; }
   const here = gridPos(from);
+
+  // two fields share the header cell, so up and down step between them first
+  if (dr) {
+    const sibs = cells.filter(x => x.r === here.r && x.c === here.c)
+                      .sort((a, b) => (a.sub || 0) - (b.sub || 0));
+    const i = sibs.findIndex(x => x.el === from);
+    if (i >= 0 && sibs[i + dr]) { closeCell(); select(sibs[i + dr].el); return; }
+  }
+
   let best = null;
   for (const cand of cells) {
     if (cand.el === from) continue;
@@ -281,12 +335,34 @@ function move(dr, dc) {
       if (!best || Math.abs(cand.r - here.r) < Math.abs(best.r - here.r)) best = cand;
     }
   }
-  if (best) { closeCell(); select(best.el); }
+  if (best) { closeCell(); select(best.el); return; }
+  // nothing that way: off the side of the window means slide it a day
+  if (dc) { closeCell(); pageWindow(dc); }
+}
+
+/* Left or right past the outermost column moves the window a day, the same as
+   the arrows in the header, and lands on the row you were already on. */
+function pageWindow(dc) {
+  if (typeof winStart === 'undefined') return;
+  const before = winStart;
+  winStart = clampStart(winStart + dc);
+  if (winStart === before) return;
+  const keep = current();
+  const pos = keep ? gridPos(keep) : null;
+  const key = keep ? cellKey(keep) : null;
+  render();
+  if (!pos) return;
+  const row = navAll().filter(x => x.r === pos.r);
+  if (!row.length) return;
+  const land = dc > 0 ? row[row.length - 1] : row[0];
+  select(land.el);
 }
 
 /* reading order, for tab */
+/* Tab runs across the row — day to day — then wraps to the start of the next.
+   Only cells that accept text, since tab is for filling things in. */
 function step(dir) {
-  const cells = allCells().sort((a, b) => a.r - b.r || a.c - b.c);
+  const cells = allCells().sort((a, b) => a.r - b.r || a.c - b.c || 0);
   const from = current();
   const i = from ? cells.findIndex(x => x.el === from) : -1;
   const next = cells[(i + dir + cells.length) % cells.length];
@@ -338,7 +414,7 @@ function repaint(snap) {
   if (hdr) {
     const tag = hdr.querySelector('.heldn');
     if (tag) tag.remove();
-    hdr.insertAdjacentHTML('afterbegin', heldTag(rec));
+    hdr.insertAdjacentHTML('beforeend', heldTag(rec));
   }
 }
 

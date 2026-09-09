@@ -146,6 +146,7 @@ async function flush() {
   const keys = Object.keys(queue);
   if (!keys.length) { setNote('Up to date'); return; }
   syncing = true;
+  let flushAgain = false;
   setNote('Saving\u2026');
   try {
     const records = keys.map(k => ({key: k, lines: queue[k], base: base[k] || ''}));
@@ -156,6 +157,19 @@ async function flush() {
     }
     for (const c of data.conflicts || []) {
       base[c.key] = c.updatedAt;
+      /* A conflict with MYSELF is not a conflict. On a poor connection a push
+         can reach the server and have its reply lost on the way back — the
+         record is saved, but this machine still thinks it failed, so it retries
+         with a base the server has already moved past. The rejection then names
+         this very device. Take the write as landed and stop asking. */
+      if (c.device && c.device === cfg.device) {
+        if (sameLines(queue[c.key], c.lines)) {
+          delete queue[c.key];               // it was already saved: nothing to do
+        } else {
+          flushAgain = true;                 // ours is newer; send it over the top
+        }
+        continue;
+      }
       onConflict(c);
     }
     lastPull = data.now;
@@ -169,6 +183,17 @@ async function flush() {
   } finally {
     syncing = false;
   }
+  // a write of our own that needs resending with the base the server now holds
+  if (flushAgain) flush();
+}
+
+/** are two sets of lines the same text, links and flags? */
+function sameLines(a, b) {
+  const norm = ls => JSON.stringify((ls || []).map(l => l && ({
+    b: !!l.bullet, p: !!l.private,
+    s: l.spans.map(sp => [sp.t, sp.url || '', !!sp.rel, !!sp.priv])
+  })));
+  return norm(a) === norm(b);
 }
 
 /**
