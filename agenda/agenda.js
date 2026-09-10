@@ -147,8 +147,13 @@ async function load(quiet) {
   try {
     // the cache-buster matters: Google caches these replies, and a stale one
     // would show yesterday's plan with no sign that it was old
+    /* The cache-buster is now per-minute rather than per-millisecond. It still
+       defeats a stale reply held for hours, which is why it exists, but two
+       students opening the page in the same minute can share one answer
+       instead of each waking the endpoint from scratch. */
+    const bust = Math.floor(Date.now() / 60000);
     const url = ENDPOINT + '?class=' + tag + (key ? '&k=' + encodeURIComponent(key) : '') +
-                '&t=' + Date.now();
+                '&t=' + bust;
     let res;
     try {
       res = await fetch(url);
