@@ -145,6 +145,15 @@ let tag = '', key = '';
 
 async function load(quiet) {
   try {
+    // the page shell started this before agenda.js had even arrived
+    if (!quiet && window.__feed) {
+      const first = window.__feed;
+      window.__feed = null;
+      try {
+        const data = await first;
+        if (data && data.ok) { lastUpdated = data.updated; render(data); return; }
+      } catch (err) { /* fall through and ask again properly */ }
+    }
     // the cache-buster matters: Google caches these replies, and a stale one
     // would show yesterday's plan with no sign that it was old
     /* The cache-buster is now per-minute rather than per-millisecond. It still
