@@ -96,8 +96,21 @@ held link cannot leak through one and not the other. Each renderer also refuses
 private lines and held URLs on its own account, so a bug upstream cannot put one
 in front of a student.
 
-The served page uses the system font rather than Source Sans 3: Apps Script
-cannot serve a `.woff2`, and 60KB of base64 per Chromebook load is a poor trade.
+The two pages lay out identically — the served CSS mirrors `agenda.css`. Two
+things differ:
+
+- **Typeface.** GitHub gets Source Sans 3; the served page uses the system font
+  (Roboto on a Chromebook). Apps Script cannot serve a `.woff2`, and 60KB of
+  base64 per load would give back the speed the served page exists for.
+- **How they refresh.** The GitHub page rechecks the feed when a tab comes back
+  to the front and redraws only if the publish timestamp moved. The served page
+  reloads itself instead, and only when the tab has been away five minutes —
+  cruder, but there is no JSON to compare against and nothing to redraw from.
+
+The served page is the faster of the two by construction: one request returning
+finished HTML, versus a shell plus fonts plus a second request that cannot start
+until the first finishes. Its plan is in the HTML, so it also works with
+JavaScript turned off; the only script on it is the reload.
 
 ## The colleague view
 
