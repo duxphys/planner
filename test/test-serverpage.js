@@ -67,6 +67,16 @@ console.log('markup in a plan is escaped:', !esc1.includes('<script>alert'));
 console.log('  and still readable       :', esc1.includes('&lt;script&gt;'));
 
 console.log('');
+console.log('--- a stale tab refreshes itself ---');
+const shell = page(feed()).html;
+console.log('refresh script present :', /visibilitychange/.test(shell));
+console.log('reloads on return      :', /location.reload/.test(shell));
+console.log('only when stale        :', /Date.now\(\)-t>3e5/.test(shell));
+console.log('never polls in the background:', !/setInterval|setTimeout/.test(shell));
+console.log('works with JS off      :', shell.indexOf('<main>') < shell.indexOf('<script>'),
+            '(the plan is in the HTML, the script only reloads)');
+
+console.log('');
 console.log('--- an error must not describe my spreadsheet ---');
 const gsFull = fs.readFileSync('apps-script/Sync.gs', 'utf8');
 const doGet = gsFull.slice(gsFull.indexOf('function doGet'), gsFull.indexOf('function out('));
