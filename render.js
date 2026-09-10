@@ -235,6 +235,15 @@ const ref = (w, d, bi, f) => ` data-w="${w}" data-d="${d}" data-bi="${bi}" data-
                              ` data-h="${key(w, d, bi)}"`;
 
 /* Toolbar and switches — everything above the grid. */
+/* How tall the toolbar is right now, so the date row can pin directly under it.
+   Re-measured on every render and on resize, because the header wraps. */
+function measureHeader() {
+  const h = document.querySelector('header');
+  if (!h) return;
+  const px = Math.round(h.getBoundingClientRect().height);
+  if (px) document.documentElement.style.setProperty('--hdr', px + 'px');
+}
+
 function paintChrome(view) {
   document.documentElement.style.setProperty('--fs', SIZES[si] + 'px');
   document.documentElement.style.setProperty('--lh', tight ? '1.25' : '1.4');
@@ -323,7 +332,9 @@ function paintByClass(view, r) {
         const other = idx.find(([b]) => b.block !== main.block);
         put(col, r, 1, 'chd bt', `background:${c.fill};color:${c.ink}`,
             `<span class="who"><span class="tg">${c.sym}\u00A0${c.tag}</span> ` +
-            `<span class="nm">${c.name} &middot; ${main.block}</span></span>` +
+            `<span class="nm">${c.name} &middot; ${main.block}</span>` +
+            (main.t0 ? `<span class="tm">${main.t0}\u2013${main.t1}</span>` : '') +
+            `</span>` +
             (isCancelled(d) ? `<span class="cxl">${esc(offText(d))}</span>` : '') +
             heldTag(main),
             ` data-h="${key(wi, di, mi)}"`);
@@ -392,7 +403,9 @@ function paintBySchedule(view, r) {
         }
         put(col, r, 1, 'chd bt', `background:${c.fill};color:${c.ink}`,
             `<span class="who"><span class="tg">${c.sym}\u00A0${c.tag}</span> ` +
-            `<span class="nm">${c.name}</span></span>` +
+            `<span class="nm">${c.name}</span>` +
+            (b.t0 ? `<span class="tm">${b.t0}\u2013${b.t1}</span>` : '') +
+            `</span>` +
             (isCancelled(d) ? `<span class="cxl">${esc(offText(d))}</span>` : '') +
             heldTag(b),
             ` data-h="${key(wi, di, bi)}"`);
@@ -416,6 +429,7 @@ function render() {
   paintHeaders(view);
   (byClass ? paintByClass : paintBySchedule)(view, 2);
   document.getElementById('app').innerHTML = '<div class="grid">' + P.join('') + '</div>';
+  measureHeader();
   if (typeof restoreSelection === 'function') restoreSelection();
   savePrefs();
 }
@@ -444,6 +458,8 @@ function loadPrefs() {
 /* ---------- toolbar ---------- */
 
 function wireToolbar() {
+  // the toolbar wraps at narrow widths, so the offset has to follow it
+  window.addEventListener('resize', measureHeader);
   const on = (id, fn) => document.getElementById(id).onclick = e => { fn(e.currentTarget); render(); };
   on('span', () => {
     SPAN = SPANS[(SPANS.indexOf(SPAN) + 1) % SPANS.length];

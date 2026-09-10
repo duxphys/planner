@@ -92,7 +92,11 @@ button[hidden]{display:none}
 /* block boundary: the one strong rule. everything inside a block stays light. */
 .bt{border-top:2px solid var(--rule)}
 
-.dh{background:var(--paper);padding:.5em .7em;position:sticky;top:37px;z-index:10}
+/* Pinned just under the toolbar. The offset is measured at run time: it was
+   hard-coded at 37px, and when the header became two rows the dates stuck
+   underneath it and vanished. */
+.dh{background:var(--paper);padding:.5em .7em;position:sticky;
+  top:var(--hdr,64px);z-index:10}
 /* today, marked plainly enough to find in a window that may not contain it */
 .dh.today{box-shadow:inset 0 3px 0 var(--link)}
 .dh.today b{color:var(--link)}
@@ -118,7 +122,7 @@ button[hidden]{display:none}
 /* the same size as the period, not the class name beside it */
 .cxl{font-size:1em;font-weight:600;color:var(--amber-ink);
   background:var(--amber-bg);border-radius:3px;padding:0 .35em;white-space:nowrap}
-.offday .offtag{position:sticky;top:6em;text-align:center;font-style:italic}
+.offday .offtag{position:sticky;top:calc(var(--hdr,64px) + 2.5em);text-align:center;font-style:italic}
 
 .dhnote{font-size:.92em;color:var(--slate);margin-top:.2em;
   padding:.1em .3em .1em .5em;border-left:2px solid transparent;min-height:1.1em}
@@ -157,6 +161,7 @@ button[hidden]{display:none}
 .chd .who{flex:0 1 auto;min-width:0}
 .chd .tg{font-weight:600;white-space:nowrap}
 .chd .nm{font-weight:400;font-size:.88em;opacity:.8}
+.chd .tm{font-weight:400;font-size:.82em;opacity:.62;margin-left:.5em;white-space:nowrap}
 .chd .cxl{flex:0 0 auto}
 .chd .heldn{flex:0 0 auto}
 /* Every cell carries a blank line's worth of space at the foot, so one cell's
