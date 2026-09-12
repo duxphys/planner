@@ -75,6 +75,26 @@ screens are wide, and a single column wasted most of one. It stacks below
 already maintains; the endpoint reads it and hands each class its own links
 plus anything marked ALL.
 
+## How a student page loads
+
+Fastest first:
+
+1. **What this browser saw last time**, drawn immediately with no network at all.
+2. **`feed/p1.json`** — a static file in this repo, beside the page, served by
+   GitHub's CDN. Written by `publish()` through the GitHub API.
+3. **The endpoint**, only if the static file is missing.
+
+Step 2 is why this is quick. Apps Script takes one to three seconds to wake
+before it does any work, and a page that waits on it can never feel fast. The
+static file removes it from the student's path completely.
+
+Set it up with `Planner sync ▸ Set GitHub token` — a fine-grained token with
+Contents: read and write on that one repo. Without it, students fall back to
+step 3 and everything still works, just slowly. `Check health` says which.
+
+A colleague link always goes to the endpoint: the static feed is the student
+one and carries none of my notes, and the secret must never be sent to a CDN.
+
 ## Two front doors
 
 The school blocks `github.io` on student Chromebooks. So the same agenda is
