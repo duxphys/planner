@@ -63,6 +63,14 @@ const g = document.getElementById('app').innerHTML;
 console.log('no-class row shown  :', /No class today/.test(g));
 console.log('  marked as ordinary:', /row off nm/.test(g));
 console.log('unwritten day hidden:', !/Thu Sep 3/.test(g));
+// the zebra has to survive every row type, including the ones with no plan
+const stripes = [...document.querySelectorAll('.row')]
+  .map(r => r.classList.contains('alt') ? 'shaded' : 'plain');
+console.log('stripe pattern      :', stripes.join(' '));
+console.log('  it alternates     :', stripes.some(s => s === 'alt' || s === 'shaded') &&
+            new Set(stripes).size === 2);
+console.log('  no two the same in a row:',
+  stripes.every((s, i) => i === 0 || s !== stripes[i - 1]));
 console.log('blank lines kept    :', document.querySelectorAll('.gap').length);
 console.log('off day reason shown:', /Staff Day/.test(out));
 console.log('date and block present:', /class="when">Wed Sep 2/.test(out) && /class="blk">Block 1/.test(out));
