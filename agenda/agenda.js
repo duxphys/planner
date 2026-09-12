@@ -63,6 +63,11 @@ function field(name, ls) {
 function dayHTML(d, stripe) {
   const z = stripe ? ' alt' : '';
   const note = (staff && d.note) ? `<div class="daynote">${esc(d.note)}</div>` : '';
+  // a school day this class simply does not fall on — not the same as no school
+  if (d.nomeet) {
+    return `<div class="row off nm${z}"><div class="when">${esc(d.d)}</div>` +
+           `<div class="blk"></div><div class="note nomeet">No class today${note}</div></div>`;
+  }
   if (d.off) {
     return `<div class="row off${z}"><div class="when">${esc(d.d)}</div>` +
            `<div class="blk"></div><div class="note" role="note">${esc(d.off)}${note}</div></div>`;

@@ -44,6 +44,10 @@ main{max-width:78rem;margin:0 auto;padding:8px 14px 48px}
 .when{font-weight:600;font-size:13.5px}
 .blk{color:var(--slate);font-size:12.5px}
 .row.off{color:var(--slate)}
+/* a day the class does not meet: quieter than a day with no school, because it
+   is ordinary rather than something to notice */
+.row.off.nm{background:transparent}
+.nomeet{color:var(--mute)}
 .row.off .note{grid-column:3 / -1;margin:0;font-style:italic}
 
 .fld{margin:0 0 8px}
@@ -91,6 +95,8 @@ a{color:var(--link);text-decoration:underline;text-underline-offset:2px;
 
 /* the colleague view: unreleased links work but stay marked, and my own notes
    are shown. The banner is there so nobody mistakes it for the student page. */
+/* the week the page landed on, so it is obvious where "now" is in a year */
+.week.here>h2{box-shadow:0 0 0 2px #8A4B00}
 .staffnote{margin:8px 0 6px;padding:5px 10px;border-radius:3px;font-size:12px;
   background:#FDF3E3;color:#8A4B00;border:1px solid #E8CFA4}
 .daynote{font-weight:400;font-size:12px;color:#8A4B00;font-style:italic}
