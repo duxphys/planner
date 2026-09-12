@@ -67,6 +67,18 @@ console.log('markup in a plan is escaped:', !esc1.includes('<script>alert'));
 console.log('  and still readable       :', esc1.includes('&lt;script&gt;'));
 
 console.log('');
+console.log('--- a day this class does not meet ---');
+const withGap = feed();
+withGap.weeks[0].days.push({d: 'Tue Sep 1', iso: '2026-09-01', meets: [], nomeet: 1});
+withGap.weeks[0].days.push({d: 'Thu Sep 3', iso: '2026-09-03', meets: []});
+const gapOut = page(withGap).html;
+console.log('nomeet gets a row      :', /No class today/.test(gapOut));
+console.log('and names the day      :', /Tue Sep 1/.test(gapOut));
+console.log('quieter than no school :', /class="note nomeet"/.test(gapOut));
+console.log('nothing-posted-yet stays hidden:', !/Thu Sep 3/.test(gapOut),
+            '(it meets, I just have not written it)');
+
+console.log('');
 console.log('--- a stale tab refreshes itself ---');
 const shell = page(feed()).html;
 console.log('refresh script present :', /visibilitychange/.test(shell));

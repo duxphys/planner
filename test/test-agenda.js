@@ -55,6 +55,14 @@ console.log('links are styled    :', /(^|\n)a\{[^}]*text-decoration:underline/.t
 console.log('held style present  :', /\.held\{[^}]*underline dotted/.test(css));
 
 console.log('bullets kept        :', document.querySelectorAll('.ln.b').length);
+// the GitHub page must agree with the served one
+feed.weeks[0].days.push({d: 'Tue Sep 1', iso: '2026-09-01', meets: [], nomeet: 1});
+feed.weeks[0].days.push({d: 'Thu Sep 3', iso: '2026-09-03', meets: []});
+render(feed);
+const g = document.getElementById('app').innerHTML;
+console.log('no-class row shown  :', /No class today/.test(g));
+console.log('  marked as ordinary:', /row off nm/.test(g));
+console.log('unwritten day hidden:', !/Thu Sep 3/.test(g));
 console.log('blank lines kept    :', document.querySelectorAll('.gap').length);
 console.log('off day reason shown:', /Staff Day/.test(out));
 console.log('date and block present:', /class="when">Wed Sep 2/.test(out) && /class="blk">Block 1/.test(out));
