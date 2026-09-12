@@ -4,27 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Class agenda</title>
-<link rel="icon" href="../favicon.svg?v=39" type="image/svg+xml">
+<link rel="icon" href="../favicon.svg?v=40" type="image/svg+xml">
 <link rel="preconnect" href="https://script.google.com">
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-<link rel="stylesheet" href="agenda.css?v=39">
+<link rel="stylesheet" href="agenda.css?v=40">
 <!-- The address first, then start asking for the plan immediately. Waiting for
      agenda.js to arrive before beginning cost a whole round trip to GitHub
      before the slow request had even been sent. -->
-<script src="endpoint.js?v=39"></script>
+<script src="endpoint.js?v=40"></script>
 <script>
   (function () {
     var q = new URLSearchParams(location.search);
     var t = (q.get('class') || '').toLowerCase();
     if (!/^p[1-7]$/.test(t) || typeof ENDPOINT !== 'string') return;
     var k = q.get('k') || '';
-    window.__feed = fetch(ENDPOINT + '?class=' + t + (k ? '&k=' + encodeURIComponent(k) : '') +
-      '&t=' + Math.floor(Date.now() / 60000)).then(function (r) { return r.json(); });
+    var bust = '&t=' + Math.floor(Date.now() / 60000);
+    // a student reads the static feed beside this page; a colleague link has to
+    // ask the endpoint, because the static one carries none of my notes
+    var url = k
+      ? ENDPOINT + '?class=' + t + '&k=' + encodeURIComponent(k) + bust
+      : 'feed/' + t + '.json?' + bust.slice(1);
+    window.__feed = fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
   })();
 </script>
 </head>
 <body>
 <main id="app"><p class="msg">Loading…</p></main>
-<script src="agenda.js?v=39"></script>
+<script src="agenda.js?v=40"></script>
 </body>
 </html>

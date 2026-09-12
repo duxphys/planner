@@ -143,6 +143,30 @@ function fail(msg) {
 let lastUpdated = null;
 let tag = '', key = '';
 
+/* Where the plan comes from, fastest first.
+   1. what this browser saw last time — drawn immediately, no network at all
+   2. feed/p1.json on the CDN, same origin as this page
+   3. the endpoint, which has to wake up first
+   A colleague link always goes straight to the endpoint: the static feed is
+   the student one and carries none of my notes. */
+const cacheKey = () => 'agenda.' + tag;
+
+function drawFromCache() {
+  try {
+    const raw = localStorage.getItem(cacheKey());
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || !data.ok) return false;
+    lastUpdated = data.updated;
+    render(data);
+    return true;
+  } catch (err) { return false; }
+}
+
+function keep(data) {
+  try { localStorage.setItem(cacheKey(), JSON.stringify(data)); } catch (err) { /* full or off */ }
+}
+
 async function load(quiet) {
   try {
     // the page shell started this before agenda.js had even arrived
@@ -161,8 +185,9 @@ async function load(quiet) {
        students opening the page in the same minute can share one answer
        instead of each waking the endpoint from scratch. */
     const bust = Math.floor(Date.now() / 60000);
-    const url = ENDPOINT + '?class=' + tag + (key ? '&k=' + encodeURIComponent(key) : '') +
-                '&t=' + bust;
+    const url = key
+      ? ENDPOINT + '?class=' + tag + '&k=' + encodeURIComponent(key) + '&t=' + bust
+      : 'feed/' + tag + '.json?t=' + bust;
     let res;
     try {
       res = await fetch(url);
@@ -171,7 +196,12 @@ async function load(quiet) {
       if (!quiet) fail('Could not reach the agenda. ' + err.message);
       return;
     }
-    if (!res.ok) { if (!quiet) fail('The agenda replied ' + res.status + '.'); return; }
+    if (!res.ok) {
+      // the static feed may not be published yet; the endpoint always works
+      if (!key && res.status === 404) return loadFromEndpoint(quiet);
+      if (!quiet) fail('The agenda replied ' + res.status + '.');
+      return;
+    }
 
     let data;
     try {
@@ -183,11 +213,26 @@ async function load(quiet) {
     if (!data.ok) { if (!quiet) fail(data.error || 'Could not load the agenda.'); return; }
     if (quiet && data.updated === lastUpdated) return;    // nothing new
     lastUpdated = data.updated;
+    if (!key) keep(data);                                // students only
     render(data);
   } catch (err) {
     // a fault in the page itself must not read as "the network is down"
     console.error(err);
     if (!quiet) fail('The agenda could not be drawn: ' + err.message);
+  }
+}
+
+/** the slow road, used when the static feed is missing */
+async function loadFromEndpoint(quiet) {
+  try {
+    const res = await fetch(ENDPOINT + '?class=' + tag + '&t=' + Math.floor(Date.now() / 60000));
+    const data = await res.json();
+    if (!data.ok) { if (!quiet) fail(data.error || 'Could not load the agenda.'); return; }
+    lastUpdated = data.updated;
+    keep(data);
+    render(data);
+  } catch (err) {
+    if (!quiet) fail('Could not reach the agenda. ' + err.message);
   }
 }
 
@@ -205,7 +250,9 @@ function start() {
   tag = (q.get('class') || '').toLowerCase();
   key = q.get('k') || '';
   if (!/^p[1-7]$/.test(tag)) { fail('Add a class to the address, like ?class=p1'); return; }
-  load();
+  // something on screen before the network is asked anything
+  const hadCache = !key && drawFromCache();
+  load(hadCache);
   watch();
 }
 
