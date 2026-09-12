@@ -105,3 +105,30 @@ console.log('--- one redaction, two doors ---');
 console.log('page() never redacts itself:',
   !/\.rel\b/.test(slice.slice(slice.indexOf('function page('))) );
 console.log('it renders whatever readPublished/staffFeed already stripped');
+
+/* The two stylesheets must stay in step. There are two copies of the same CSS —
+   one in the repo, one inside Sync.gs — and a fix applied to only one of them
+   cost an hour of chasing a cache that was innocent. */
+const css1 = fs.readFileSync('agenda/agenda.css', 'utf8').replace(/\s+/g, '');
+const css2 = fs.readFileSync('apps-script/Sync.gs', 'utf8').replace(/\s+/g, '');
+console.log('');
+console.log('--- the GitHub page and the served page agree ---');
+const shared = [
+  ['stacked layout',  'grid-template-columns:auto1fr'],
+  ['date column',     '.when{grid-column:1'],
+  ['block beside it', '.blk{grid-column:2'],
+  ['plan below both', '.col{grid-column:1/-1'],
+  ['stripe colour',   '--band:#E9EEF2'],
+  ['no-class text',   '.nomeet{color:var(--mute)'],
+  ['no stripe override', null],
+];
+for (const [what, rule] of shared) {
+  if (rule === null) {
+    console.log('  ' + what.padEnd(20),
+      (!/background:transparent/.test(css1) && !/background:transparent/.test(css2))
+        ? 'neither overrides the stripe' : 'ONE STILL OVERRIDES IT');
+    continue;
+  }
+  const a = css1.includes(rule), b = css2.includes(rule);
+  console.log('  ' + what.padEnd(20) + (a && b ? 'both' : a ? 'ONLY agenda.css' : b ? 'ONLY Sync.gs' : 'NEITHER'));
+}
