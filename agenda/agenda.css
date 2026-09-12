@@ -17,7 +17,7 @@
      importance. */
   --accent:#1B3A5C; --link:#0B4C81;
   --ink:#16202B; --slate:#5F6E7B; --mute:#8B97A2;
-  --hair:#DDE3E8; --paper:#FFFFFF; --band:#F3F5F7;
+  --hair:#DDE3E8; --paper:#FFFFFF; --band:#E9EEF2;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);
@@ -44,10 +44,10 @@ main{max-width:78rem;margin:0 auto;padding:8px 14px 48px}
 .when{font-weight:600;font-size:13.5px}
 .blk{color:var(--slate);font-size:12.5px}
 .row.off{color:var(--slate)}
-/* a day the class does not meet: quieter than a day with no school, because it
-   is ordinary rather than something to notice */
-.row.off.nm{background:transparent}
-.nomeet{color:var(--mute)}
+/* A day the class does not meet reads as ordinary rather than as something to
+   notice, so only its text is quieter. It keeps its stripe: overriding the
+   background here removed the alternation from the one row you would see it on. */
+.nomeet{color:var(--mute);font-style:italic}
 .row.off .note{grid-column:3 / -1;margin:0;font-style:italic}
 
 .fld{margin:0 0 8px}
