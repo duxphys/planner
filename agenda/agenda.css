@@ -69,11 +69,13 @@ main{max-width:78rem;margin:0 auto;padding:8px 14px 48px}
 
 /* narrow enough that two columns would be unreadable: stack instead */
 @media (max-width:52rem){
-  .row{grid-template-columns:1fr;gap:0;padding:10px 8px}
-  .when{font-size:15px}
-  .blk{margin-bottom:6px}
-  .row.off .note{grid-column:auto}
-  .col{margin-top:2px}
+  /* the date and the block share a line: the block belongs to the day, not
+     to the plan. A gap then separates them from the class work. */
+  .row{grid-template-columns:auto 1fr;gap:0 .7em;padding:10px 8px}
+  .when{grid-column:1;font-size:15px}
+  .blk{grid-column:2;justify-self:start;align-self:baseline}
+  .row.off .note{grid-column:2;margin:0}
+  .col{grid-column:1 / -1;margin-top:.85em}
   /* stacked, homework sits under class work — so it gets a hard rule and its
      own heading weight. A small grey label alone would go unread. */
   .col + .col{border-left:0;padding-left:0;
