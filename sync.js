@@ -97,7 +97,15 @@ function findRecord(key) {
 /* text/plain on purpose: application/json makes the browser send a preflight,
    and Apps Script has no way to answer one. The server parses the body either
    way, so the request stays "simple" and the round trip works. */
-async function call(action, body) {
+/* Apps Script answers a POST with a 302 to script.googleusercontent.com, and a
+   browser following a 302 turns POST into GET and drops the body. It normally
+   works because the redirect carries the result; when it does not, the request
+   arrives at doGet with no parameters and comes back as the student-page error.
+   Every action here is safe to repeat, so a converted request is simply sent
+   again rather than reported as a failure. */
+const LOST_POST = /which class\?|expects a post/i;
+
+async function call(action, body, again) {
   if (!cfg.url || !cfg.token) throw new Error('not connected');
   const res = await fetch(cfg.url, {
     method: 'POST',
@@ -105,7 +113,13 @@ async function call(action, body) {
     body: JSON.stringify(Object.assign({action, token: cfg.token, device: cfg.device}, body))
   });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'endpoint refused');
+  if (!data.ok) {
+    if (LOST_POST.test(data.error || '') && !again) {
+      console.warn('POST became a GET in transit; sending ' + action + ' again');
+      return call(action, body, true);
+    }
+    throw new Error(data.error || 'endpoint refused');
+  }
   return data;
 }
 
