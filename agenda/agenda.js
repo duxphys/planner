@@ -148,12 +148,13 @@ function fail(msg) {
 let lastUpdated = null;
 let tag = '', key = '';
 
-/* Where the plan comes from, fastest first.
+/* Where the plan comes from.
    1. what this browser saw last time — drawn immediately, no network at all
-   2. feed/p1.json on the CDN, same origin as this page
-   3. the endpoint, which has to wake up first
-   A colleague link always goes straight to the endpoint: the static feed is
-   the student one and carries none of my notes. */
+   2. the endpoint
+
+   There used to be a step between these: a static feed file in the repository,
+   which was quicker because nothing had to wake up. It was removed because it
+   put instructional content on a host outside the district. */
 const cacheKey = () => 'agenda.' + tag;
 
 function drawFromCache() {
@@ -190,9 +191,8 @@ async function load(quiet) {
        students opening the page in the same minute can share one answer
        instead of each waking the endpoint from scratch. */
     const bust = Math.floor(Date.now() / 60000);
-    const url = key
-      ? ENDPOINT + '?class=' + tag + '&k=' + encodeURIComponent(key) + '&t=' + bust
-      : 'feed/' + tag + '.json?t=' + bust;
+    const url = ENDPOINT + '?class=' + tag +
+                (key ? '&k=' + encodeURIComponent(key) : '') + '&t=' + bust;
     let res;
     try {
       res = await fetch(url);
@@ -201,12 +201,7 @@ async function load(quiet) {
       if (!quiet) fail('Could not reach the agenda. ' + err.message);
       return;
     }
-    if (!res.ok) {
-      // the static feed may not be published yet; the endpoint always works
-      if (!key && res.status === 404) return loadFromEndpoint(quiet);
-      if (!quiet) fail('The agenda replied ' + res.status + '.');
-      return;
-    }
+    if (!res.ok) { if (!quiet) fail('The agenda replied ' + res.status + '.'); return; }
 
     let data;
     try {
@@ -224,20 +219,6 @@ async function load(quiet) {
     // a fault in the page itself must not read as "the network is down"
     console.error(err);
     if (!quiet) fail('The agenda could not be drawn: ' + err.message);
-  }
-}
-
-/** the slow road, used when the static feed is missing */
-async function loadFromEndpoint(quiet) {
-  try {
-    const res = await fetch(ENDPOINT + '?class=' + tag + '&t=' + Math.floor(Date.now() / 60000));
-    const data = await res.json();
-    if (!data.ok) { if (!quiet) fail(data.error || 'Could not load the agenda.'); return; }
-    lastUpdated = data.updated;
-    keep(data);
-    render(data);
-  } catch (err) {
-    if (!quiet) fail('Could not reach the agenda. ' + err.message);
   }
 }
 
