@@ -27,6 +27,8 @@ let absent = {};               // keyed 'P1|9/14', holding lines of codes and na
 let absentNote = '';           // why they are missing, when they are
 const ABSENT_CODES = ['AB', 'T', 'TE', 'TX'];
 let syncing = false, retryTimer = null;
+let chain = 0;                 // consecutive follow-up sends, so a refusal cannot spin
+let srvVersion = '';           // which deployment answered last, named in any failure
 
 function loadSync() {
   try {
@@ -113,6 +115,7 @@ async function call(action, body, again) {
     body: JSON.stringify(Object.assign({action, token: cfg.token, device: cfg.device}, body))
   });
   const data = await res.json();
+  if (data && data.version) srvVersion = data.version;
   if (!data.ok) {
     if (LOST_POST.test(data.error || '') && !again) {
       console.warn('POST became a GET in transit; sending ' + action + ' again');
@@ -129,10 +132,15 @@ async function pullNow() {
   const data = await call('pull', {since: lastPull});
   let applied = 0, missed = 0;
   for (const rec of data.records || []) {
-    const at = findRecord(rec.key);
+    /* A cell we are still holding an unsent edit for keeps the version that
+       edit was made against. Advancing it here was quietly disarming the
+       version guard: the push then carried the server's own current version as
+       its base, the comparison matched, and the edit replaced whatever another
+       machine had saved in the meantime with nothing raised. */
+    if (queue[rec.key] !== undefined) continue;
     base[rec.key] = rec.updatedAt;
+    const at = findRecord(rec.key);
     if (!at) { missed++; continue; }       // a date or class not in this build
-    if (queue[rec.key] !== undefined) continue;   // ours is newer and still unsent
     const holder = at.bi === null ? WEEKS[at.w].days[at.d] : WEEKS[at.w].days[at.d].blocks[at.bi];
     holder[at.f] = rec.lines && rec.lines.length ? rec.lines : null;
     applied++;
@@ -184,7 +192,7 @@ async function flush() {
         }
         continue;
       }
-      onConflict(c);
+      if (onConflict(c)) flushAgain = true;
     }
     lastPull = data.now;
     saveSync();
@@ -198,7 +206,19 @@ async function flush() {
     syncing = false;
   }
   // a write of our own that needs resending with the base the server now holds
-  if (flushAgain) flush();
+  /* A send that has to be followed by another one — a reply that went missing,
+     or a merge that still has to go up. Bounded, because a server that keeps
+     refusing would otherwise spin here forever and never say so. */
+  if (!flushAgain) { chain = 0; return; }
+  if (chain >= 3) {
+    chain = 0;
+    setNote(Object.keys(queue).length + ' pending \u2014 will retry');
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(flush, RETRY_MS);
+    return;
+  }
+  chain++;
+  flush();
 }
 
 /** are two sets of lines the same text, links and flags? */
@@ -216,26 +236,57 @@ function sameLines(a, b) {
  * ours stays queued and is offered back. Last-writer-wins is how an evening
  * of planning disappears without anyone noticing.
  */
+/**
+ * Two machines wrote the same cell. Keep both.
+ *
+ * Theirs becomes the cell, because that is what the server holds and what every
+ * other machine is already showing. Mine is folded in underneath as private
+ * lines — teacher-only, never published — under a line saying where it came
+ * from. Choosing between them is then an ordinary edit, made while looking at
+ * both, instead of a dialog answered by reflex in the middle of typing.
+ *
+ * This used to ask, and drop my version on either answer: Cancel discarded it,
+ * and a cell outside this build discarded it without even asking.
+ */
 function onConflict(c) {
-  const at = findRecord(c.key);
   const mine = queue[c.key];
-  delete queue[c.key];
-  if (!at) return;
-  const rec = at.bi === null ? WEEKS[at.w].days[at.d] : WEEKS[at.w].days[at.d].blocks[at.bi];
-  rec[at.f] = c.lines && c.lines.length ? c.lines : null;
+  const theirs = c.lines && c.lines.length ? c.lines : null;
+  const merged = keepBoth(theirs, mine, c);
+  const at = findRecord(c.key);
+
+  queue[c.key] = merged;                  // never dropped, whatever happens next
+  if (at) {
+    const rec = at.bi === null ? WEEKS[at.w].days[at.d] : WEEKS[at.w].days[at.d].blocks[at.bi];
+    rec[at.f] = merged;
+  }
+  saveSync();
+  setNote('Kept both versions of ' + c.key.split('|').slice(0, 2).join(' '));
   render();
-  const el = document.querySelector(at.bi === null
-    ? '[data-f="' + (at.f === 'offLines' ? 'off' : 'note') + '"][data-h="' +
-      at.w + '.' + at.d + '.' + (at.f === 'offLines' ? 'o' : 'n') + '"]'
-    : '[data-h="' + at.w + '.' + at.d + '.' + at.bi + '"][data-f="' + at.f + '"]');
-  const where = c.key.split('|').slice(0, 2).join(' ');
-  const keep = window.confirm(
-    where + ' was changed on ' + (c.device || 'another machine') + ' at ' +
-    new Date(c.updatedAt).toLocaleString() + '.\n\n' +
-    'That version is now on screen.\n\n' +
-    'OK to replace it with yours, Cancel to keep theirs.');
-  if (keep) { queue[c.key] = mine; saveSync(); flush(); }
-  else if (el) el.classList.add('sel');
+  return true;                            // the merge still has to be sent
+}
+
+/** theirs, then mine kept below it as teacher-only lines */
+function keepBoth(theirs, mine, c) {
+  if (!mine || !mine.length) return theirs;
+  const MARK = 'Kept from this machine';
+  const textOf = l => l.spans.map(s => s.t).join('');
+  const marked = ls => (ls || []).some(l => l && l.private && textOf(l).indexOf(MARK) === 0);
+  /* Idempotent. A merge that is refused again comes back through here with the
+     merged copy as "mine" — appending once more would stack their version and
+     the heading on every retry. Mine already holds both, so keep it as it is. */
+  if (marked(mine)) return mine;
+  if (marked(theirs)) return theirs;
+
+  const when = (function () {
+    const d = new Date(c.updatedAt);
+    return isNaN(d.getTime()) ? 'just now' : d.toLocaleString();
+  })();
+  const head = {bullet: false, private: true, spans: [{
+    t: MARK + ' \u2014 ' + (c.device || 'another machine') + ' saved over it at ' + when,
+    url: null, rel: false, priv: false}]};
+  // every rescued line is private, so none of it can reach a student page
+  const rescued = mine.filter(Boolean).map(l => ({bullet: l.bullet, private: true, spans: l.spans}));
+  return (theirs || []).concat([null, head], rescued);
 }
 
 /* ---------- the calendar, handed to the endpoint ---------- */
@@ -365,7 +416,8 @@ const QUIET = {'Up to date': 1, 'Saved': 1};
 function setNote(t) {
   const el = document.getElementById('sync');
   if (!el) return;
-  el.title = t;
+  // hovering Sync on any machine says which deployment that machine is using
+  el.title = t + (srvVersion ? '\n' + cfg.url.slice(0, 64) + '\nendpoint ' + srvVersion : '');
   if (QUIET[t] && typeof ICONS !== 'undefined') { el.innerHTML = ICONS.cloud; el.classList.add('ico'); }
   else { el.textContent = t; el.classList.remove('ico'); }
 }
@@ -412,7 +464,11 @@ async function startSync() {
     /* Do not swallow this. A gradebook that cannot be read looks exactly like a
        day when nobody was out, and you would never know which you were seeing. */
     try { absentNote = ''; await pullAbsences(); }
-    catch (err) { absentNote = 'Absences unavailable: ' + err.message; console.warn(absentNote); }
+    catch (err) {
+      absentNote = 'Absences unavailable' + (srvVersion ? ' (endpoint ' + srvVersion + ')' : '') +
+                   ': ' + err.message;
+      console.warn(absentNote);
+    }
     render();
     setNote(Object.keys(queue).length ? Object.keys(queue).length + ' pending' : 'Up to date');
   } catch (err) {
