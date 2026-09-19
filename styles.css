@@ -227,6 +227,13 @@ a:focus-visible{outline:2px solid var(--link);outline-offset:1px}
 @media (prefers-reduced-motion:reduce){#bar{transition:none}}
 
 /* ---------- editing ---------- */
+
+/* Chrome draws a selection in whatever colour the operating system's accent is
+   set to, and an inactive one — focus in the link panel, selection still in the
+   cell — in a different shade again. That is where the stray orange fill came
+   from. Naming it here makes it the same on every machine. */
+::selection{background:#CFE0EF;color:var(--ink)}
+
 .cell.sub[data-f]{cursor:text}
 .cell.sub[data-f]:hover{box-shadow:inset 0 0 0 1px var(--rule)}
 .cell.sub.sel{outline:2px solid var(--slate);outline-offset:-2px}

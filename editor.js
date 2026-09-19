@@ -498,11 +498,34 @@ function showPop(a) {
     '<input class="tx" type="text" spellcheck="false">' +
     '<input class="ur" type="url" spellcheck="false">' +
     '<button data-act="save">Save</button></div>';
-  const box = a.getBoundingClientRect();
   p.classList.add('on');
-  p.style.top = (window.scrollY + box.bottom + 6) + 'px';
-  p.style.left = Math.min(window.scrollX + box.left,
-    window.scrollX + document.documentElement.clientWidth - p.offsetWidth - 8) + 'px';
+  placePop();
+}
+
+/* Put the panel next to its link and keep it on screen.
+   It has two sizes — the icon row alone, and the row plus the edit fields — so
+   the position has to be worked out again whenever it changes size. Measuring
+   once while it was narrow is what let the expanded panel run off the side. */
+function placePop() {
+  const p = pop();
+  if (!popFor || !p.classList.contains('on')) return;
+  const box = popFor.getBoundingClientRect();
+  const w = p.offsetWidth, h = p.offsetHeight;
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  const GAP = 6, EDGE = 8;
+
+  // below by default, above when there is no room and more room up there
+  const below = box.bottom + GAP + h <= vh - EDGE;
+  const top = below ? box.bottom + GAP : Math.max(EDGE, box.top - GAP - h);
+
+  // clamp both sides, and prefer the left edge when it is wider than the window
+  let left = box.left;
+  if (left + w > vw - EDGE) left = vw - EDGE - w;
+  if (left < EDGE) left = EDGE;
+
+  p.style.top = (window.scrollY + top) + 'px';
+  p.style.left = (window.scrollX + left) + 'px';
 }
 function hidePop() { pop().classList.remove('on', 'editing'); popFor = null; }
 
@@ -967,6 +990,7 @@ function wireLinkMenu() {
     }
     if (act === 'edit') {
       p.classList.add('editing');
+      placePop();                                    // it just got much wider
       p.querySelector('.tx').value = popFor.textContent;
       p.querySelector('.ur').value = popFor.dataset.u;
       const t = p.querySelector('.tx');
