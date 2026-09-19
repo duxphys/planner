@@ -74,9 +74,19 @@ global.fetch = async (u, o) => {
 };
 queue[KEY] = newer; base[KEY] = 'T1';
 await flush();
+await new Promise(r => setTimeout(r, 60));          // let the follow-up sends settle
 console.log('');
 console.log('--- a real conflict, another machine ---');
-console.log('asked me to choose  :', asked, '(should be 1)');
+/* No longer a dialog. A clash with a different machine keeps both versions:
+   theirs in the cell, mine folded in below as teacher-only lines. */
+const both = (queue[KEY] || []).filter(Boolean).map(l => l.spans.map(s => s.t).join('')).join(' | ');
+console.log('nobody was interrupted :', asked === 0);
+console.log('their version kept     :', /from the desktop/.test(both));
+console.log('mine kept as well      :', /Energy stations - revised/.test(both));
+console.log('the retry is bounded   :', chain === 0, '(it stops rather than spinning)');
+
+// the app legitimately schedules a retry; stop it so the process can end
+clearTimeout(retryTimer);
 `;
 eval('(async () => {' + load('data.js') + load('test/fixture.js') + load('render.js') +
      load('editor.js') + load('sync.js') + probe + '})()');

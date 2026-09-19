@@ -70,15 +70,23 @@ loadSync(); cfg.url = 'https://fake/exec'; cfg.token = 'good';
 
   // someone else writes it, then we push a stale copy
   store[key] = {updatedAt: '2099-01-01T00:00:00.000Z', device: 'other-mac', lines: [{bullet:false, private:false, spans:[{t:'theirs', url:null, rel:false}]}]};
-  let asked = null;
-  window.confirm = msg => { asked = msg; return false; };   // keep theirs
+  let asked = 0;
+  window.confirm = () => { asked++; return false; };
   queue[key] = [{bullet:false, private:false, spans:[{t:'mine', url:null, rel:false}]}];
   await flush();
   await new Promise(r => setTimeout(r, 20));
-  console.log('conflict was raised   :', /changed on other-mac/.test(asked || ''));
+  /* The old behaviour asked, and threw one version away on either answer. Now
+     both are kept: theirs is the cell, mine is folded in below as teacher-only
+     lines, and the decision is an ordinary edit made later. */
   const now = recOf(cell)[cell.dataset.f];
-  console.log('their version applied :', now && now[0].spans[0].t === 'theirs');
-  console.log('mine was not written  :', store[key].device === 'other-mac');
+  const said = (now || []).filter(Boolean).map(l => l.spans.map(s => s.t).join('')).join(' | ');
+  console.log('no dialog interrupted :', asked === 0);
+  console.log('their version is there:', /theirs/.test(said));
+  console.log('and mine is too       :', /mine/.test(said));
+  console.log('mine is teacher-only  :', (now || []).filter(Boolean)
+    .filter(l => /mine|Kept from this machine/.test(l.spans.map(s => s.t).join('')))
+    .every(l => l.private === true));
+  clearTimeout(retryTimer);                       // let the process end
 
   // --- a reload: fresh page, same storage, records must come back ---
   store['2026-09-02|P1|cw'] = {updatedAt: '2030-01-01T00:00:00.000Z', device: 'desktop',
@@ -104,5 +112,8 @@ loadSync(); cfg.url = 'https://fake/exec'; cfg.token = 'good';
   console.log('queue persisted       :', '2026-09-03|P1|cw' in JSON.parse(localStorage.getItem('planner.sync.v1')).queue);
   global.fetch = good;
 })();
+
+// the app legitimately schedules a retry; stop it so the process can end
+clearTimeout(retryTimer);
 `;
 eval(load('data.js') + load('test/fixture.js') + load('render.js') + load('editor.js') + load('sync.js') + probe);
