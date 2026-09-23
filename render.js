@@ -294,8 +294,13 @@ function paintHeaders(view) {
   view.forEach(({d, w: wi, i}, col) => put(col + 2, 1, 1,
     'dh' + (d.iso === iso ? ' today' : ''), '',
     `<div class="dhtop"><b>${d.d}${d.iso === iso ? '<i>today</i>' : ''}</b>` +
-    `<span>${!d.cycle ? 'No school'
-       : (student && isCancelled(d)) ? '' : 'Day ' + d.cycle}</span></div>` +
+    /* The cycle-day tag doubles as a button: it is the one place that knows
+       which days are "every Day 4", so repeating a cell down the rotation
+       hangs off it rather than off another switch in the toolbar. */
+    `<span${d.cycle && !student ? ` class="cyc" data-cyc="${d.cycle}"` +
+        ` title="Repeat the selected cell on every Day ${d.cycle}"` : ''}>${
+      !d.cycle ? 'No school'
+        : (student && isCancelled(d)) ? '' : 'Day ' + d.cycle}</span></div>` +
     (student
       ? (isCancelled(d) ? `<em>${esc(offText(d))}</em>` : '')
       : `<div class="dhoff${isCancelled(d) ? ' cancelled' : ''}" data-w="${wi}" ` +

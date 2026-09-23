@@ -103,6 +103,10 @@ button[hidden]{display:none}
 .dh b i{font-style:normal;font-size:.7em;font-weight:600;letter-spacing:.06em;
   text-transform:uppercase;color:var(--link);margin-left:.45em;vertical-align:.1em}
 .dhtop{display:flex;align-items:baseline;justify-content:space-between;gap:.5em}
+/* the cycle-day tag is also the repeat button; the dotted rule is the only
+   hint it is clickable, so it stays faint until the pointer is on it */
+.cyc{cursor:pointer;border-bottom:1px dotted transparent}
+.dh:hover .cyc{border-bottom-color:currentColor}
 .dh b{font-size:1.05em;font-weight:600}
 .dh span{font-size:.92em;color:var(--mute)}
 /* The school's reason, on any day. On a day with no school it is the label the

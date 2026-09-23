@@ -156,11 +156,16 @@ async function pullNow() {
 
 /** called when a cell closes; the write goes out on the next flush */
 function syncChange(cell, lines) {
-  const key = recKey(cell.dataset.w, cell.dataset.d, cell.dataset.bi, cell.dataset.f);
-  if (!key) return;
+  if (syncKeyChange(cell.dataset.w, cell.dataset.d, cell.dataset.bi, cell.dataset.f, lines)) flush();
+}
+
+/** the same, for a cell that has no element on screen to read the position off */
+function syncKeyChange(w, d, bi, f, lines) {
+  const key = recKey(w, d, bi, f);
+  if (!key) return false;
   queue[key] = lines || null;
   saveSync();
-  flush();
+  return true;
 }
 
 async function flush() {

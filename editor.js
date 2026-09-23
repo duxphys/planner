@@ -446,6 +446,69 @@ function typingBurst(cell) {
   burstTimer = setTimeout(endBurst, 700);
 }
 
+/* ---------- repeating a cell down the rotation ----------
+ *
+ * A standing commitment — a PLC that meets in the ASP block on every Day 4 —
+ * is otherwise typed twelve times. Select the cell, click the "Day 4" tag in
+ * that column's header, and it goes into the same block on every other Day 4.
+ *
+ * Two rules keep it safe. It only ever fills a cell that is empty, so nothing
+ * already planned is overwritten; and clicking again when every other day
+ * already holds exactly this takes it back out, which is the undo — the app's
+ * own undo is per cell and would not cover twelve of them.
+ */
+function repeatOnCycle(cycle) {
+  const note = m => { if (typeof setNote === 'function') setNote(m); };
+  closeCell();                            // commit whatever is being typed first
+  const cell = current();
+  if (!cell || !cell.dataset.f || cell.dataset.bi === undefined) {
+    note('Pick a class or prep cell first, then click Day ' + cycle);
+    return;
+  }
+  const src = WEEKS[cell.dataset.w].days[cell.dataset.d];
+  if (src.cycle !== cycle) { note('That cell is not on a Day ' + cycle); return; }
+
+  const bi = +cell.dataset.bi, f = cell.dataset.f;
+  const save = (t, v) => { if (typeof syncKeyChange === 'function') syncKeyChange(t.w, t.i, bi, f, v); };
+  const proto = src.blocks[bi], ls = proto[f];
+  if (!ls || !ls.length) { note('Nothing in that cell to repeat'); return; }
+
+  /* Same block, same period, same kind of block — a taught class stays a
+     taught class. The rotation is regular, so these all match; the test is
+     there because a calendar change is exactly what would break it quietly. */
+  const targets = DAYS
+    .filter(x => x.d.cycle === cycle && x.d !== src && !isCancelled(x.d))
+    .map(x => ({w: x.w, i: x.i, b: x.d.blocks[bi]}))
+    .filter(t => t.b && t.b.block === proto.block && t.b.period === proto.period &&
+                 !!t.b.course === !!proto.course);
+
+  const empty = targets.filter(t => !(t.b[f] && t.b[f].length));
+  const same = targets.filter(t => t.b[f] && typeof sameLines === 'function' &&
+                                   sameLines(t.b[f], ls));
+  const what = 'Day ' + cycle + ' · ' + proto.block;
+
+  if (empty.length) {
+    const held = targets.length - empty.length;
+    if (!window.confirm('Copy this into ' + empty.length + ' more ' + what + ' cell' +
+        (empty.length === 1 ? '' : 's') + '?' +
+        (held ? '\n\n' + held + ' already have something and will be left alone.' : ''))) return;
+    empty.forEach(t => { t.b[f] = clone(ls); save(t, t.b[f]); });
+    note('Filled ' + empty.length + ' ' + what + ' cells');
+  } else if (same.length) {
+    const held = targets.length - same.length;
+    if (!window.confirm('Take this back out of ' + same.length + ' ' + what + ' cell' +
+        (same.length === 1 ? '' : 's') + '?' +
+        (held ? '\n\n' + held + ' have something else and will be left alone.' : ''))) return;
+    same.forEach(t => { t.b[f] = null; save(t, null); });
+    note('Cleared ' + same.length + ' ' + what + ' cells');
+  } else {
+    note('Every other ' + what + ' already has something else in it');
+    return;
+  }
+  if (typeof flush === 'function') flush();
+  render();
+}
+
 /** put or clear the cancelled marks down one day's column */
 function markCancelled(w, d, field) {
   const day = WEEKS[w].days[d];
@@ -698,6 +761,10 @@ function wireEditor() {
   /* Clicking a link opens the cell like any other click. Following a link is
      the menu's job — otherwise a cell full of links is barely clickable. */
   main.addEventListener('mousedown', e => {
+    /* Before the deselect below: clicking the cycle tag has to act on the cell
+       that is selected right now, and mousedown anywhere else clears it. */
+    const cyc = e.target.closest('[data-cyc]');
+    if (cyc) { e.preventDefault(); repeatOnCycle(+cyc.dataset.cyc); return; }
     const cell = e.target.closest(EDITABLE);
     const a = e.target.closest('a[data-u]');
     if (!cell) { closeCell(); select(null); return; }
