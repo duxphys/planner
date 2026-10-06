@@ -54,6 +54,8 @@ const feed = gs.slice(gs.indexOf('function staffFeed'), gs.indexOf('/* ---------
 console.log('');
 console.log('staff feed never touches absences:', !/absen/i.test(feed));
 console.log('staff feed needs its own token   :',
-  /q.k && vt && q.k === vt/.test(gs) && /VIEW_TOKEN/.test(gs));
+  /var staff = !!\(q\.k && q\.k === vt\)/.test(gs) &&
+  /getProperty\('VIEW_TOKEN'\)/.test(gs) &&
+  /if \(q\.k && !vt\)/.test(gs));
 console.log('and it is not the write token    :',
   gs.indexOf("getProperty('VIEW_TOKEN')") !== gs.indexOf("getProperty('TOKEN')"));

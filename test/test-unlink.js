@@ -35,7 +35,11 @@ showPop(a);
 document.body.focus();
 document.querySelector('#pop [data-act=unlink]').click();
 console.log('links before/after  :', before, '->', cell.querySelectorAll('a[data-u]').length);
-console.log('execCommand ran     :', focused === true);
+/* Unlink used to go through execCommand, which did nothing once the cell had
+   lost focus and left the button looking dead. It now replaces the anchor
+   directly, so what to assert is that it worked WITHOUT focus. */
+console.log('works without focus :', focused !== true &&
+            cell.querySelectorAll('a[data-u]').length === before - 1);
 console.log('words kept          :', cell.textContent.includes(words));
 const back = cellLines(cell).filter(Boolean).flatMap(l => l.spans);
 console.log('no url in the record:', !back.some(s => s.url === a.dataset.u));

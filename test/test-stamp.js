@@ -41,3 +41,21 @@ console.log('tooltip carries version  :', /endpoint v11/.test(document.getElemen
 console.log('tooltip carries the url  :', /OLD_ONE/.test(document.getElementById('sync').title));
 `;
 eval('(async () => {' + load('data.js') + load('render.js') + load('sync.js') + probe + '})()');
+
+/* A retired file left in the Apps Script project is the quietest failure of
+   all: every .gs file shares one namespace and the last parsed wins, so an old
+   Publish.gs can replace a function in Sync.gs with nothing said. */
+console.log('');
+console.log('--- retired code left in the project is detected ---');
+const health = gs.slice(gs.indexOf("lines.push('OTHER CODE IN THIS PROJECT')"),
+                        gs.indexOf("lines.push('TABS')"));
+const watched = ['readAbsences', 'readGradebookConfig', 'readStudentLinks',
+                 'inspectTab', 'resolveTabs', 'buildCycle', 'extendRotation',
+                 'pushFeeds', 'ghCommitAll'];
+console.log('names it watches for :', watched.every(n => health.includes("'" + n + "'")));
+console.log('says what to do      :', /Delete those files/.test(health));
+// and none of them may be defined by Sync.gs itself, or it would cry wolf
+const own = [...gs.matchAll(/^function ([A-Za-z_]\w*)/gm)].map(m => m[1]);
+const clash = watched.filter(n => own.includes(n));
+console.log('no false alarm       :', clash.length === 0,
+            clash.length ? '(Sync.gs itself defines ' + clash.join(', ') + ')' : '');

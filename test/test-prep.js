@@ -20,13 +20,19 @@ global.fetch = async (url, opt) => {
 };
 const load = f => fs.readFileSync(f,'utf8');
 const probe = `
-loadPrefs(); wireToolbar(); wireEditor(); wi = 0; byClass = false; render();
+loadPrefs(); wireToolbar(); wireEditor(); winStart = 0; byClass = false; render();
 loadSync(); cfg.url='https://fake/exec'; cfg.token='good';
 
 (async () => {
   const box = document.querySelector('.prepbox[data-f=prep]');
   console.log('prep box exists      :', !!box);
-  console.log('has a header         :', /Prep &middot; P\\d|Prep · P\\d/.test(document.getElementById('app').innerHTML));
+  /* Was a text pattern for "Prep · P6". The header is built from elements and
+     its order changed, so the pattern silently stopped matching — invisible
+     until the suite could fail. Ask the element instead. */
+  const phd = document.querySelector('.prephd');
+  console.log('has a header         :', !!phd &&
+    /^P\\d$/.test((phd.querySelector('.tg') || {}).textContent || '') &&
+    /Prep/.test(phd.textContent));
 
   openCell(box);
   console.log('opens for editing    :', editing === box);

@@ -42,12 +42,36 @@ student = true; render();
 const inPreview = document.getElementById('app').innerHTML;
 check('absences never reach the student view', !document.querySelector('.abs') && !/Absent/.test(inPreview));
 
-// no held link leaks its url to students
-let leaked = 0, heldSeen = 0;
+/* No held link leaks its url to students.
+ *
+ * This used to ask whether the url appeared in inPreview — ONE five-column
+ * render — while walking every held link in the year. Fourteen days of the
+ * window were off-screen, so most links were compared against html they were
+ * never in, and the check passed while the student view was emitting real href
+ * attributes. Proven on 23 Sep 2026 by removing the protection and watching it
+ * stay green.
+ *
+ * Render each held line on its own and look at that line's markup, so every
+ * link is actually examined. Anywhere a url could hide counts: href, any data
+ * attribute, a comment. */
+let leaked = 0, heldSeen = 0, unseen = 0, heldPriv = 0;
 for (const w of WEEKS) for (const d of w.days) for (const b of d.blocks)
   for (const ls of [b.cw, b.hw]) for (const l of (ls||[])) if (l)
-    for (const s of l.spans) if (s.url && !s.rel) { heldSeen++; if (inPreview.includes(s.url)) leaked++; }
-check('held-back links carry no url in preview', leaked === 0, heldSeen + ' held links checked');
+    for (const s of l.spans) if (s.url && !s.rel) {
+      heldSeen++;
+      const html = lines([l]);                    // student is true at this point
+      if (html.includes(s.url)) leaked++;
+      /* The words must still be there, or the check "passes" only because
+         nothing rendered at all. A private line and a (( )) run are supposed
+         to render nothing, so they are not evidence either way. */
+      if (!l.private && !s.priv && s.t.trim() &&
+          !html.includes(esc(s.t.trim().slice(0, 12)))) unseen++;
+      if (l.private || s.priv) heldPriv++;
+    }
+check('held-back links carry no url, per line', leaked === 0, heldSeen + ' held links checked');
+check('  and the words did render', heldSeen > heldPriv && unseen === 0,
+      unseen + ' missing, of ' + (heldSeen - heldPriv) + ' that should show ('
+      + heldPriv + ' private, render nothing by design)');
 
 /* per line, not by scanning one week's html for another week's text —
    a private note reading "Convocation" matched "Grade 11 Convocation" */
@@ -143,6 +167,10 @@ const writable = [...document.querySelectorAll('.cell.sub')].filter(e => !e.clas
 check('no cell looks writable without a record', writable.every(e => e.dataset.f), writable.length + ' cells');
 
 console.log('\\n' + (fail.length ? fail.length + ' FAILED' : 'all checks passed'));
+/* This file used to print "3 FAILED" and then exit 0, so run-all.js recorded
+   it as ok. Own the exit code here, and give strict.js a real boolean to see. */
+console.log('audit clean                :', fail.length === 0);
+if (fail.length) process.exitCode = 1;
 `;
 global.CSS = CSS;
 eval(load('data.js') + load('test/fixture.js') + load('render.js') + load('editor.js') + load('sync.js') + probe);

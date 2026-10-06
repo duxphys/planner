@@ -36,10 +36,12 @@ console.log('');
 console.log('--- the endpoint no longer publishes to GitHub on its own ---');
 const gs = fs.readFileSync('apps-script/Sync.gs', 'utf8');
 const publish = gs.slice(gs.indexOf('function publish('), gs.indexOf('function readPublished'));
-console.log('  publish still calls pushFeeds :', /pushFeeds\(\)/.test(publish),
-            '(harmless: it does nothing without a stored repo)');
-console.log('  pushFeeds stops when unset    :',
-  /if \(!cfg\.token \|\| !cfg\.repo\) return null/.test(gs));
+/* pushFeeds was not just switched off, it was removed. These two lines still
+   asked whether it was called and whether it guarded itself — both false, for
+   the wrong reason. Assert it is gone, which is the stronger claim. */
+console.log('  publish never pushes feeds    :', !/pushFeeds/.test(publish));
+console.log('  and pushFeeds is gone entirely:', !/function pushFeeds/.test(gs));
+console.log('  no ghPut left to write with   :', !/function ghPut/.test(gs));
 console.log('  a way to delete what is there :', /function removeGithubFeeds/.test(gs));
 console.log('  which also clears the token   :',
   /deleteProperty\('GH_TOKEN'\)/.test(gs.slice(gs.indexOf('function removeGithubFeeds'))));

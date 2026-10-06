@@ -11,7 +11,7 @@ global.localStorage = {getItem:()=>null, setItem:()=>{}};
 document.execCommand = () => false;
 const load = f => fs.readFileSync(f,'utf8');
 const probe = `
-loadPrefs(); wireToolbar(); wireEditor(); wi = 0; byClass = false; render();
+loadPrefs(); wireToolbar(); wireEditor(); winStart = 0; byClass = false; render();
 const grid = () => document.getElementById('app').innerHTML;
 
 // a day the calendar never had school: one band, not one label and four blanks

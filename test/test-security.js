@@ -17,8 +17,15 @@ console.log('no student names          :', names.length === 0, names.join(' '));
 console.log('\n--- what the endpoint lets through without a token ---');
 const doGet = gs.slice(gs.indexOf('function doGet'), gs.indexOf('function out('));
 console.log('published agenda  : yes  (that is the point)');
-console.log('diagnostics       :', /q.check \|\| q.echo/.test(doGet) && /bad token/.test(doGet)
-  ? 'no  — token required' : 'YES — LEAKS');
+/* Was looking for 'bad token' inside doGet; that wording lives in doPost, so
+   this printed LEAKS while the token was in fact being checked. Assert the shape
+   that matters: the diagnostics branch refuses before it answers. */
+const diag = doGet.slice(doGet.indexOf('if (q.check || q.echo)'));
+const refuseAt = Math.min.apply(null, ['does not match', 'add &token'].map(function (w) {
+  var i = diag.indexOf(w); return i < 0 ? Infinity : i;
+}));
+console.log('diagnostics behind the token :',
+  refuseAt < diag.indexOf('selfCheck()'));
 
 console.log('\n--- what needs the token ---');
 const doPost = gs.slice(gs.indexOf('function doPost'), gs.indexOf('function doGet'));

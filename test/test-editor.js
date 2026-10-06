@@ -22,7 +22,8 @@ for (const w of WEEKS)
         if (same(orig, back)) ok++;
         else bad.push({where: w.label + ' ' + d.d + ' ' + b.block + ' ' + f, orig, back});
       }
-console.log('round-trip: ' + ok + '/' + cells + ' cells identical');
+console.log('every cell round-trips  :', cells > 0 && ok === cells,
+            ok + '/' + cells + ' identical');
 bad.slice(0, 3).forEach(b => {
   console.log('\\nMISMATCH ' + b.where);
   console.log('  was : ' + JSON.stringify(b.orig).slice(0, 260));

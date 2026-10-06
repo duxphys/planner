@@ -87,7 +87,8 @@ loadSync(); cfg.url = 'https://fake/exec'; cfg.token = 'good';
   };
   await pullAbsences();
   console.log('empty reply is reported :', /No attendance found/.test(document.getElementById('classbar').innerHTML));
-  console.log('reason is shown         :', /no gradebook set up/.test(document.getElementById('classbar').innerHTML));
+  // the two messages were merged: one line that also says what to go and fix
+  console.log('and says what to fix    :', /Gradebook tab mapping/.test(document.getElementById('classbar').innerHTML));
   global.fetch = good;
 })();
 `;

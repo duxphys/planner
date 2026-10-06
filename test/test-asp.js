@@ -31,6 +31,7 @@ for (winStart of [0, 5]) {
 // nothing that looks writable is actually dead
 render();
 const looksWritable = [...document.querySelectorAll('.cell.sub')].filter(el => !el.dataset.f && !el.classList.contains('abs'));
-console.log('tinted cells with no record:', looksWritable.length);
+console.log('no tinted cell without a record:', looksWritable.length === 0,
+            '(' + looksWritable.length + ')');
 `;
 eval(load('data.js') + load('test/fixture.js') + load('render.js') + load('editor.js') + probe);

@@ -24,8 +24,10 @@ console.log('close -> ce attr:', c.getAttribute('contenteditable'),
             '| matches original:', c.innerHTML === before);
 
 // the CSS bug: does the selector still match once closed?
-console.log('css [contenteditable] would still match:', c.matches('[contenteditable]'));
-console.log('css [contenteditable="true"] matches:', c.matches('[contenteditable="true"]'));
+/* Both were printed as raw facts, where false was the PASS. A verdict has to
+   read true = good, or nobody can tell a pass from a regression. */
+console.log('closed cell is not editable    :', !c.matches('[contenteditable]'));
+console.log('  nor by the ="true" selector  :', !c.matches('[contenteditable="true"]'));
 
 // edit panel has both fields
 openCell(c);

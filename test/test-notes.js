@@ -28,17 +28,18 @@ loadSync(); cfg.url='https://fake/exec'; cfg.token='good';
   console.log('first / last        :', WEEKS[0].label, '->', WEEKS[WEEKS.length-1].label);
 
   // arrows stop rather than wrap
-  wi = 0; render();
+  winStart = 0; render();
   console.log('prev disabled at start:', document.getElementById('prev').disabled);
   document.getElementById('prev').click();
-  console.log('prev does nothing     :', wi === 0);
-  wi = WEEKS.length - 1; render();
+  console.log('prev does nothing     :', winStart === 0);
+  const last = DAYS.length - SPAN;
+  winStart = last; render();
   console.log('next disabled at end  :', document.getElementById('next').disabled);
   document.getElementById('next').click();
-  console.log('next does nothing     :', wi === WEEKS.length - 1);
+  console.log('next does nothing     :', winStart === last);
 
   // the note is editable
-  wi = 1; render();
+  winStart = 5; render();
   const note = document.querySelector('.dhnote[data-f=note]');
   console.log('');
   console.log('note field exists     :', !!note);
@@ -63,7 +64,7 @@ loadSync(); cfg.url='https://fake/exec'; cfg.token='good';
   student = false; render();
 
   // --- the school's reason is its own field ---
-  wi = 0; render();
+  winStart = 0; render();
   const offEl = document.querySelector('.dhoff[data-f=off]');
   console.log('');
   console.log('off-day field exists  :', !!offEl);
