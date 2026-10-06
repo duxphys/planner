@@ -425,7 +425,24 @@ function paintBySchedule(view, r) {
   return r;
 }
 
+/* A render while a cell is open rebuilt the whole grid's innerHTML and orphaned
+   the element being typed into, so the un-committed text vanished off screen.
+   Several things call render() on their own schedule — pullAbsences, startSync,
+   and the 'online' event, which fires on any wifi blip. Anything the user
+   initiates closes the cell first (the capture-phase mousedown does that), so a
+   render arriving mid-edit is always a background one and can wait. */
+let deferred = false;
+function renderIfDeferred() {
+  if (!deferred) return;
+  deferred = false;
+  render();
+}
+
 function render() {
+  /* isEditing() rather than the `editing` variable: that is a `let` in a script
+     parsed after this one, and typeof on a let in its dead zone THROWS rather
+     than saying "undefined". A hoisted function is safe to probe. */
+  if (typeof isEditing === 'function' && isEditing()) { deferred = true; return; }
   winStart = clampStart(winStart);        // never draw from outside the calendar
   const view = DAYS.slice(winStart, winStart + SPAN);
   paintChrome(view);

@@ -225,6 +225,8 @@ function closeCell() {
   // only repaints itself — so the rest of the column has to be told
   if (f === 'offLines') markCancelled(cell.dataset.w, cell.dataset.d, cell);
   hidePop();
+  // a background render held off while this cell was open can run now
+  if (typeof renderIfDeferred === 'function') renderIfDeferred();
 }
 
 /* ---------- moving between cells ----------
@@ -396,6 +398,17 @@ const snapSel = s => DAY_SUFFIX[s.f]
 const snapRec = s => DAY_FIELDS[s.f] ? WEEKS[s.w].days[s.d] : WEEKS[s.w].days[s.d].blocks[s.bi];
 const snapField = s => DAY_FIELDS[s.f] || s.f;
 
+/** Is a cell open for editing? render() asks before rebuilding the grid. */
+function isEditing() { return !!editing; }
+
+/** The record key of the cell open for editing, if any. sync.js asks, so a pull
+ *  can leave that one record's version alone — see pullNow. */
+function editingKey() {
+  if (!editing || !editing.dataset.f || typeof recKey !== 'function') return null;
+  const d = editing.dataset;
+  return recKey(d.w, d.d, d.bi, d.f);
+}
+
 /* call immediately BEFORE changing a cell */
 function mark(cell) {
   if (!cell || !cell.dataset.f) return;
@@ -407,6 +420,13 @@ function mark(cell) {
 function repaint(snap) {
   const rec = snapRec(snap), f = snapField(snap);
   rec[f] = snap.lines.length ? clone(snap.lines) : null;
+  /* Undo and redo change the record, so the endpoint has to be told. They did
+     not: syncChange was called only from closeCell, so after a Ctrl+Z the queue
+     still held the PRE-undo text and that is what got pushed and published. The
+     screen and the server disagreed, and the server won on the next reload. */
+  if (typeof syncKeyChange === 'function' &&
+      syncKeyChange(snap.w, snap.d, snap.bi, snap.f, rec[f]) &&
+      typeof flush === 'function') flush();
   const el = document.querySelector(snapSel(snap));
   if (!el) { render(); return; }
   el.innerHTML = (el === editing) ? editHTML(rec[f]) : lines(rec[f]);
@@ -1079,6 +1099,21 @@ function wireLinkMenu() {
     if (e.target.closest('#pop') || e.target.closest('#app')) return;
     closeCell();
   }, true);
+
+  /* An open cell exists only in the DOM until it is closed — nothing committed
+     it on the way out, so closing the tab, reloading, or the laptop sleeping
+     simply lost whatever had been typed, with no prompt. closeCell() commits to
+     the record and queues the write, and syncKeyChange saves the queue to disk
+     SYNCHRONOUSLY, so it survives even when the page does not come back.
+     Three events because no single one is reliable: beforeunload does not fire
+     on mobile or on some tab closes, pagehide does, and a laptop lid closing
+     usually only gives us visibilitychange. closeCell is idempotent. */
+  const commit = () => { try { closeCell(); } catch (err) { /* going away anyway */ } };
+  window.addEventListener('beforeunload', commit);
+  window.addEventListener('pagehide', commit);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') commit();
+  });
 
 }
 

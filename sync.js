@@ -14,6 +14,20 @@
 const SYNC_KEY = 'planner.sync.v1';
 const RETRY_MS = 20000;
 
+/* setTimeout, but a pending timer must not hold the process open.
+ *
+ * In a browser this is exactly setTimeout — unref does not exist there. In node,
+ * which is where the tests run, a pending timer keeps the event loop alive, so a
+ * test that legitimately leaves a record queued would hang the runner instead of
+ * exiting. That was previously patched test by test with a clearTimeout at the
+ * end of each; doing it here covers every retry path, including ones added
+ * later. The timer still fires normally while anything else keeps the loop busy. */
+function later(fn, ms) {
+  const t = setTimeout(fn, ms);
+  if (t && typeof t.unref === 'function') t.unref();
+  return t;
+}
+
 let cfg = {url: '', token: '', device: ''};
 let base = {};                 // key -> the updatedAt we last saw from the server
 let queue = {};                // key -> lines waiting to go out
@@ -130,8 +144,16 @@ async function call(action, body, again) {
 
 async function pullNow() {
   const data = await call('pull', {since: lastPull});
-  let applied = 0, missed = 0;
+  let applied = 0, missed = 0, held = 0;
+  /* A cell open for editing has no queue entry yet — the text is still only in
+     the DOM — so the guard below did not cover it, and its base advanced to the
+     server's current stamp. Closing the cell then pushed against a base that
+     matched and overwrote another machine with nothing raised: the same failure
+     as the disarmed guard, through a different door. Treat an open cell exactly
+     like a queued one. */
+  const open = typeof editingKey === 'function' ? editingKey() : null;
   for (const rec of data.records || []) {
+    if (open && rec.key === open) { held++; continue; }
     /* A cell we are still holding an unsent edit for keeps the version that
        edit was made against. Advancing it here was quietly disarming the
        version guard: the push then carried the server's own current version as
@@ -146,6 +168,7 @@ async function pullNow() {
     applied++;
   }
   if (missed) console.warn('sync: ' + missed + ' record(s) had no matching cell');
+  if (held) console.warn('sync: ' + held + ' record(s) left alone — open for editing');
   lastPull = data.now;
   saveSync();
   if (applied) render();
@@ -173,14 +196,23 @@ async function flush() {
   const keys = Object.keys(queue);
   if (!keys.length) { setNote('Up to date'); return; }
   syncing = true;
-  let flushAgain = false;
+  let flushAgain = false, progress = false;
   setNote('Saving\u2026');
   try {
     const records = keys.map(k => ({key: k, lines: queue[k], base: base[k] || ''}));
+    /* What we actually sent, so a cell edited again DURING the round trip is not
+       mistaken for the version the server just confirmed. */
+    const sent = {};
+    for (const k of keys) sent[k] = queue[k];
     const data = await call('push', {records});
     for (const s of data.saved || []) {
       base[s.key] = s.updatedAt;
-      delete queue[s.key];                 // only clear what the server confirmed
+      /* Only clear what the server confirmed — and only if the queue still holds
+         what we sent. Closing the same cell again while this push was in flight
+         leaves a NEWER edit under that key, and deleting it here lost it with
+         nothing shown. */
+      if (sameLines(queue[s.key], sent[s.key])) delete queue[s.key];
+      progress = true;
     }
     for (const c of data.conflicts || []) {
       base[c.key] = c.updatedAt;
@@ -206,7 +238,7 @@ async function flush() {
     saveSync();                                 // don't rely on the caller having saved
     setNote('Offline \u2014 ' + Object.keys(queue).length + ' pending');
     clearTimeout(retryTimer);
-    retryTimer = setTimeout(flush, RETRY_MS);   // the queue is on disk; it can wait
+    retryTimer = later(flush, RETRY_MS);   // the queue is on disk; it can wait
   } finally {
     syncing = false;
   }
@@ -214,12 +246,25 @@ async function flush() {
   /* A send that has to be followed by another one — a reply that went missing,
      or a merge that still has to go up. Bounded, because a server that keeps
      refusing would otherwise spin here forever and never say so. */
-  if (!flushAgain) { chain = 0; return; }
+  if (!flushAgain) {
+    chain = 0;
+    /* An edit made while that push was in flight hit the `syncing` guard at the
+       top and returned without queueing a retry, so it sat here unsent until the
+       next time a cell happened to close. If anything is still queued, go again:
+       straight away when the last push made progress, and after the normal retry
+       delay when it did not, so a record the server never answers for cannot
+       spin this in a loop. */
+    if (Object.keys(queue).length) {
+      clearTimeout(retryTimer);
+      retryTimer = later(flush, progress ? 0 : RETRY_MS);
+    }
+    return;
+  }
   if (chain >= 3) {
     chain = 0;
     setNote(Object.keys(queue).length + ' pending \u2014 will retry');
     clearTimeout(retryTimer);
-    retryTimer = setTimeout(flush, RETRY_MS);
+    retryTimer = later(flush, RETRY_MS);
     return;
   }
   chain++;
@@ -479,7 +524,7 @@ async function startSync() {
   } catch (err) {
     setNote('Offline \u2014 ' + (Object.keys(queue).length || 'no') + ' pending');
     clearTimeout(retryTimer);
-    retryTimer = setTimeout(startSync, RETRY_MS);
+    retryTimer = later(startSync, RETRY_MS);
   }
 }
 
