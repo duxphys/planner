@@ -29,9 +29,11 @@ const publish = gs.slice(gs.indexOf('function publish('), gs.indexOf('function r
 console.log('  publish never pushes feeds    :', !/pushFeeds/.test(publish));
 console.log('  and pushFeeds is gone entirely:', !/function pushFeeds/.test(gs));
 console.log('  no ghPut left to write with   :', !/function ghPut/.test(gs));
-console.log('  a way to delete what is there :', /function removeGithubFeeds/.test(gs));
-console.log('  which also clears the token   :',
-  /deleteProperty\('GH_TOKEN'\)/.test(gs.slice(gs.indexOf('function removeGithubFeeds'))));
+/* Then the rest went too (v42): nothing in the endpoint can reach GitHub, or
+   any host outside Google, at all. */
+console.log('  no GitHub function left       :', !/function (gh[A-Z]\w*|setGithub|authoriseGitHub|removeGithubFeeds)\(/.test(gs));
+console.log('  no outbound request at all    :', !/UrlFetchApp/.test(gs));
+console.log('  a stored credential is reported:', /GH_TOKEN/.test(gs.slice(gs.indexOf('function checkHealth'))));
 
 console.log('');
 console.log('--- and student data still never reaches any of it ---');
@@ -44,6 +46,6 @@ const body = name => {                       // exactly one function, by its bra
   }
   return '';
 };
-for (const fn of ['buildPublished', 'pushFeeds', 'removeGithubFeeds']) {
+for (const fn of ['buildPublished', 'backup']) {
   console.log('  ' + fn.padEnd(18), /absen/i.test(body(fn)) ? 'MENTIONS ABSENCES' : 'never touches absences');
 }

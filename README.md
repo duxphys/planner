@@ -3,8 +3,9 @@
 A static page that plans my week and syncs through an Apps Script endpoint.
 No build step, no dependencies, nothing fetched from the network at runtime.
 
-Separate repo, deployment and token from the homework app at `/hw`. This one
-must never touch that one.
+Separate repo, deployment and token from the homework checker
+(`darkspireteach/hw`) and the document namer. They share knowledge, not code:
+each has its own Apps Script project, and none writes to another's workbook.
 
 ## Files
 
@@ -54,6 +55,17 @@ Schoology link breaks.
 Hovering **Sync** in the app shows which deployment and version that machine is
 talking to. `…/exec?ping=1` returns the version with no token.
 
+## Backups
+
+After a save, if the last copy is a week old, the endpoint writes every record
+to Drive ▸ **Planner backups** as `Planner records YYYY-MM-DD.json` — each row
+exactly as stored — and keeps the newest eight. A backup that fails never fails
+the save; it is retried the next day, and **Check health** shows the last copy
+and any failure. **Planner sync ▸ Back up records now** makes one on demand.
+
+The record tab grows itself: a save that needs a row past the tab's last one
+adds 500 more first.
+
 ## The student page
 
 The endpoint renders it: `…/exec?class=p1&page=1`, one URL per class, in
@@ -102,7 +114,6 @@ in `run-all.js`: a markup snapshot would fail on every intentional UI change.
 
 ## Not done yet
 
-- A weekly backup of the records tab to Drive.
 - Reading `Courses` and `Build Calendar`, so `data.js` stops being hardcoded.
   Until then the calendar ends where the sheet's built weeks end.
 - A single-class view with its days running down the page.

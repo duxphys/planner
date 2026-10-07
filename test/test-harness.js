@@ -133,6 +133,45 @@ const CASES = [
        apart in the source; they are only joined in the file that gets written. */
     to:   'const isOff = d => !d.cycle;   // e.g. ' + 'AB' + ': K Whitlock',
     test: 'test-security.js'
+  },
+  {
+    what: 'the record tab grows instead of refusing a save',
+    file: 'apps-script/Sync.gs',
+    from: 'if (short > 0) sh.insertRowsAfter(sh.getMaxRows(), short + 500);',
+    to:   'void 0;',
+    test: 'test-records.js'  },
+  {
+    what: 'a save is followed by a backup when one is due',
+    file: 'apps-script/Sync.gs',
+    from: 'if (done.ok) backupIfDue();',
+    to:   'void 0;',
+    test: 'test-records.js'  },
+  {
+    what: 'backups are weekly, not every save',
+    file: 'apps-script/Sync.gs',
+    from: 'if (at && Date.now() - at < BACKUP_EVERY) return;',
+    to:   'void 0;',
+    test: 'test-records.js'  },
+  {
+    what: 'a failed backup is not retried on every save',
+    file: 'apps-script/Sync.gs',
+    from: 'if (failed && Date.now() - failed < 86400000) return;',
+    to:   'void 0;',
+    test: 'test-records.js'  },
+  {
+    what: 'old backups are trimmed',
+    file: 'apps-script/Sync.gs',
+    from: 'for (var i = KEEP_BACKUPS; i < kept.length; i++) kept[i].f.setTrashed(true);',
+    to:   'void 0;',
+    test: 'test-records.js'
+  },
+  {
+    /* a backup that throws would turn a saved record into a failed save */
+    what: 'a failed backup never costs the save',
+    file: 'apps-script/Sync.gs',
+    from: 'return {ok: false, error: why};',
+    to:   'throw err;',
+    test: 'test-records.js'
   }
 ];
 
