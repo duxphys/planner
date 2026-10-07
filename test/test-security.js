@@ -4,15 +4,44 @@ process.chdir(require('path').join(__dirname, '..'));
 const gs = fs.readFileSync('apps-script/Sync.gs', 'utf8');
 
 console.log('--- what is in the public repo ---');
-const repo = ['index.html','styles.css','render.js','editor.js','sync.js','data.js',
-              'agenda/index.html','agenda/agenda.js','agenda/agenda.css','agenda/endpoint.js']
-  .map(f => fs.readFileSync(f, 'utf8')).join('\n');
+/* This list was written by hand. It named four agenda/ files that have since
+   been deleted, and it never covered test/ — which is in the repo too, and is
+   exactly where a real student name reached a comment once before. Read what
+   actually ships instead, so a new file is scanned the day it is added. */
+const SKIP = /^(node_modules|\.git|fonts)$/;
+const shipped = [];
+(function walk(dir) {
+  for (const e of fs.readdirSync(dir, {withFileTypes: true})) {
+    if (SKIP.test(e.name)) continue;
+    const p = dir === '.' ? e.name : dir + '/' + e.name;
+    if (e.isDirectory()) walk(p);
+    else if (/\.(js|html|css|gs|json|md)$/.test(e.name)) shipped.push(p);
+  }
+})('.');
+console.log('files scanned             :', shipped.length > 20, '(' + shipped.length + ')');
+const repo = shipped.map(f => fs.readFileSync(f, 'utf8')).join('\n');
 console.log('no token in any repo file :', !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/.test(repo));
-console.log('no gradebook id           :', !/spreadsheets\/d\/[A-Za-z0-9_-]{20,}/.test(repo));
-/* a real name once reached a code comment as an "example" — this looks for the
-   shape of a name after an attendance code, wherever it appears */
-const names = repo.match(/\b(AB|T|TE|TX):\s*[A-Z]\s+[A-Z][a-z]+/g) || [];
-console.log('no student names          :', names.length === 0, names.join(' '));
+
+/* A document id, but not an obvious placeholder — sheets-clipboard.html carries
+   EXAMPLEDOCID2xxxx... on purpose, and failing on that teaches nobody anything. */
+const ids = (repo.match(/spreadsheets\/d\/[A-Za-z0-9_-]{20,}/g) || [])
+  .filter(u => !/EXAMPLE|xxxx/i.test(u));
+console.log('no gradebook id           :', ids.length === 0, ids.join(' '));
+
+/* A real name once reached a code comment as an "example" and sat in the public
+   repo for weeks. This looks for the shape of a name after an attendance code,
+   anywhere in anything that ships.
+ *
+ * The absence tests need realistic names to render, so the four they use are
+ * declared here BY VALUE. Allowing a file instead would be lax in the dangerous
+ * direction: a real name dropped into that same fixture would then be invisible,
+ * and that is exactly the file it would land in. */
+const INVENTED = ['N Alder', 'R Birch', 'J Cedar', 'S Dunn'];
+const names = (repo.match(/\b(?:AB|T|TE|TX):\s*[A-Z]\s+[A-Z][a-z]+/g) || [])
+  .map(m => m.replace(/^\w+:\s*/, ''))
+  .filter(n => !INVENTED.includes(n));
+console.log('no real student names     :', names.length === 0,
+            names.length ? '-> ' + [...new Set(names)].join(', ') : '');
 
 console.log('\n--- what the endpoint lets through without a token ---');
 const doGet = gs.slice(gs.indexOf('function doGet'), gs.indexOf('function out('));

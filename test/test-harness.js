@@ -117,6 +117,22 @@ const CASES = [
     from: 'syncKeyChange(snap.w, snap.d, snap.bi, snap.f, rec[f]) &&',
     to:   'false &&',
     test: 'test-openceil.js'
+  },
+  {
+    /* Found on 7 Oct: the old scan had a hand-written file list that named four
+       deleted files and never looked at test/ at all, so a name sitting in a
+       fixture was invisible to it. Prove the widened scan actually reaches an
+       ordinary source file. */
+    what: 'a real student name anywhere in the repo is caught',
+    file: 'render.js',
+    from: 'const isOff = d => !d.cycle;',
+    /* Assembled rather than written out. This file ships too, so spelling the
+       code and the name next to each other here would be found by the very scan
+       this case tests, and the baseline would fail on the unbroken copy — which
+       it did, once, including from inside this comment. Keep the two halves
+       apart in the source; they are only joined in the file that gets written. */
+    to:   'const isOff = d => !d.cycle;   // e.g. ' + 'AB' + ': K Whitlock',
+    test: 'test-security.js'
   }
 ];
 

@@ -7,27 +7,14 @@ const fs = require('fs');
 process.chdir(require('path').join(__dirname, '..'));
 const {JSDOM} = require('jsdom');
 
-console.log('--- the student page asks only the endpoint ---');
-const shell = fs.readFileSync('agenda/index.html', 'utf8');
-function firstRequest(search) {
-  const dom = new JSDOM(shell.replace(/<script src[^>]*><\/script>/g, ''),
-    {url: 'https://x.test/agenda/' + search, runScripts: 'dangerously'});
-  const asked = [];
-  dom.window.ENDPOINT = 'https://script.google.com/macros/s/X/exec';
-  dom.window.fetch = u => { asked.push(u); return Promise.resolve(
-    {ok: true, status: 200, json: async () => ({ok: true, updated: 'T', weeks: []})}); };
-  dom.window.eval(/<script>([\s\S]*?)<\/script>/.exec(shell)[1]);
-  return asked[0] || '';
-}
-const s = firstRequest('?class=p1'), c = firstRequest('?class=p1&k=secret');
-console.log('  student  :', s.replace(/macros.*exec/, 'exec'));
-console.log('  colleague:', c.replace(/macros.*exec/, 'exec'));
-console.log('  neither reads a static file:', !/feed\//.test(s) && !/feed\//.test(c));
-
-console.log('');
+/* The page that used to be probed here lived in agenda/ and fetched the feed
+   itself. It was deleted: students are served by Sync.gs, which reads nothing
+   outside the district at all. So the strongest statement is no longer "the
+   page asks only the endpoint" but "there is no such page, and nothing left
+   points at a repository path". */
 console.log('--- nothing in the front end points at a repository path ---');
-const front = ['agenda/index.html', 'agenda/agenda.js', 'agenda/agenda.css',
-               'index.html', 'render.js', 'editor.js', 'sync.js']
+console.log('  the agenda/ folder is gone :', !fs.existsSync('agenda'));
+const front = ['index.html', 'render.js', 'editor.js', 'sync.js']
   .map(f => fs.readFileSync(f, 'utf8')).join('\n');
 console.log('  no feed/ path      :', !/['"`]feed\//.test(front));
 console.log('  no github api call :', !/api\.github\.com/.test(front));

@@ -1,0 +1,12 @@
+{
+  "name": "planner-tests",
+  "private": true,
+  "description": "Constraint and behaviour checks for the lesson planner.",
+  "scripts": {
+    "audit": "node audit.js",
+    "test": "node run-all.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

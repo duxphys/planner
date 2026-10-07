@@ -1,3 +1,10 @@
+/* The names below are invented. They are declared in test-security.js, which
+   fails on any name-shaped string anywhere in the repo that is NOT one of them.
+   A real student's name once reached a code comment here and sat in the public
+   repo for weeks; the old scan had a hand-written file list that never looked
+   at test/ at all. Keep them realistic in SHAPE — initial, surname — so the
+   rendering is still tested against what the gradebook actually returns.
+*/
 /* Absences: read-only, teacher-only, and never written to this machine. */
 const fs = require('fs');
 process.chdir(require('path').join(__dirname, '..'));   // run from anywhere
@@ -15,8 +22,8 @@ global.fetch = async (url, opt) => {
   const req = JSON.parse(opt.body);
   sent.push(req.action);
   if (req.action === 'absences') return {json: async () => ({ok:true, byTag: {
-    P1: {'9/2': {AB: ['N Emami', 'R Choi'], T: ['J Park']}, '9/3': {}},
-    P5: {'9/2': {TE: ['S Ali']}}
+    P1: {'9/2': {AB: ['N Alder', 'R Birch'], T: ['J Cedar']}, '9/3': {}},
+    P5: {'9/2': {TE: ['S Dunn']}}
   }})};   // 9/3 taken, nobody out.  P2 never reported: not taken.
   return {json: async () => ({ok:true, now:new Date().toISOString(), records:[], saved:[], conflicts:[]})};
 };
@@ -29,11 +36,11 @@ loadSync(); cfg.url = 'https://fake/exec'; cfg.token = 'good';
   await pullAbsences();
   const grid = () => document.getElementById('app').innerHTML;
 
-  console.log('P1 absences shown   :', /AB: N Emami, R Choi/.test(grid()));
-  console.log('lateness shown too  :', /T: J Park/.test(grid()));
-  const oneLine = grid().indexOf('AB: N Emami, R Choi');
+  console.log('P1 absences shown   :', /AB: N Alder, R Birch/.test(grid()));
+  console.log('lateness shown too  :', /T: J Cedar/.test(grid()));
+  const oneLine = grid().indexOf('AB: N Alder, R Birch');
   console.log('on its own line     :',
-    grid().slice(oneLine, oneLine + 60).indexOf('T: J Park') > 0 &&
+    grid().slice(oneLine, oneLine + 60).indexOf('T: J Cedar') > 0 &&
     grid().slice(oneLine, oneLine + 60).indexOf('div') > 0);
   console.log('taken, nobody out   :', /All here/.test(grid()));
   // P2 was never reported, so its absence cell must be empty — not a dash
@@ -43,7 +50,7 @@ loadSync(); cfg.url = 'https://fake/exec'; cfg.token = 'good';
     c.style.gridColumn === String(p2 + 2));
   console.log('not taken -> blank  :', absText('2026-09-02', 2) === '');
   console.log('taken+clear is not blank:', absText('2026-09-03', 1) !== '');
-  console.log('P5 on the same day  :', /TE: S Ali/.test(grid()));
+  console.log('P5 on the same day  :', /TE: S Dunn/.test(grid()));
   const cell = document.querySelector('.abs');
   console.log('they sit in Absent  :', /AB:|T:|TE:/.test(document.querySelector('.cell.sub.abs').textContent) ||
     [...document.querySelectorAll('.cell.sub.abs')].some(c => /AB:/.test(c.textContent)));
@@ -53,17 +60,17 @@ loadSync(); cfg.url = 'https://fake/exec'; cfg.token = 'good';
   console.log('never pushed        :', !sent.includes('push'));
 
   student = true; render();
-  console.log('absent from student view:', !/N Emami|J Park|S Ali/.test(grid()));
+  console.log('absent from student view:', !/N Alder|J Cedar|S Dunn/.test(grid()));
   student = false; render();
 
   saveSync();
   const disk = localStorage.getItem('planner.sync.v1');
-  console.log('no names on disk    :', !/Emami|Choi|Park|Ali/.test(disk));
+  console.log('no names on disk    :', !/Alder|Birch|Cedar|Dunn/.test(disk));
   console.log('not even the key    :', !('absent' in JSON.parse(disk)));
 
   // class view too
   byClass = true; render();
-  console.log('class view shows them   :', /AB: N Emami/.test(grid()));
+  console.log('class view shows them   :', /AB: N Alder/.test(grid()));
 
   // a gradebook that cannot be read must SAY so, not look like a quiet day
   byClass = false;

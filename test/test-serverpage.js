@@ -106,29 +106,40 @@ console.log('page() never redacts itself:',
   !/\.rel\b/.test(slice.slice(slice.indexOf('function page('))) );
 console.log('it renders whatever readPublished/staffFeed already stripped');
 
-/* The two stylesheets must stay in step. There are two copies of the same CSS —
-   one in the repo, one inside Sync.gs — and a fix applied to only one of them
-   cost an hour of chasing a cache that was innocent. */
-const css1 = fs.readFileSync('agenda/agenda.css', 'utf8').replace(/\s+/g, '');
-const css2 = fs.readFileSync('apps-script/Sync.gs', 'utf8').replace(/\s+/g, '');
+/* There used to be TWO copies of this CSS — one in the repo's agenda/ folder,
+   one inside Sync.gs — and this compared them, because a fix applied to only
+   one cost an hour of chasing a cache that was innocent. The agenda/ folder was
+   deleted when students moved to the served page, so the comparison was reduced
+   to checking a deleted file against the live one: it passed, and it protected
+   nothing. Assert the live stylesheet carries the layout outright. */
+const css = gs.replace(/\s+/g, '');
 console.log('');
-console.log('--- the GitHub page and the served page agree ---');
-const shared = [
+console.log('--- the served page carries its own layout ---');
+for (const [what, rule] of [
   ['stacked layout',  'grid-template-columns:auto1fr'],
   ['date column',     '.when{grid-column:1'],
   ['block beside it', '.blk{grid-column:2'],
   ['plan below both', '.col{grid-column:1/-1'],
   ['stripe colour',   '--band:#E9EEF2'],
-  ['no-class text',   '.nomeet{color:var(--mute)'],
-  ['no stripe override', null],
-];
-for (const [what, rule] of shared) {
-  if (rule === null) {
-    console.log('  ' + what.padEnd(20),
-      (!/background:transparent/.test(css1) && !/background:transparent/.test(css2))
-        ? 'neither overrides the stripe' : 'ONE STILL OVERRIDES IT');
-    continue;
-  }
-  const a = css1.includes(rule), b = css2.includes(rule);
-  console.log('  ' + what.padEnd(20) + (a && b ? 'both' : a ? 'ONLY agenda.css' : b ? 'ONLY Sync.gs' : 'NEITHER'));
-}
+  ['no-class text',   '.nomeet{color:var(--mute)']
+]) console.log('  ' + what.padEnd(18) + ':', css.includes(rule));
+
+/* Week order. This was the only live half of test-staffdir.js, which otherwise
+   drove the deleted agenda renderer — its jump-to-current-week behaviour went
+   with that renderer and is not a thing the served page does. */
+console.log('');
+console.log('--- week order ---');
+const wk = mon => ({label: mon, mon, days: [{d: 'Wed', iso: mon, meets: [{block: 'B',
+  cw: [line([{t: 'work ' + mon}])], hw: null}]}]});
+const many = page(feed({weeks: ['2026-08-31', '2026-09-07', '2026-09-14'].map(wk)})).html;
+const shown = (many.match(/2026-\d\d-\d\d/g) || []).filter((v, i, a) => a.indexOf(v) === i);
+console.log('  page keeps the order it is given:',
+  shown.join() === '2026-08-31,2026-09-07,2026-09-14', shown.join(' '));
+
+/* The order itself is decided where the sheet is read, which needs a
+   SpreadsheetApp this shim does not have — so these two stay source checks, and
+   say so rather than pretending to be behaviour. */
+const pub = gs.slice(gs.indexOf('function readPublished'), gs.indexOf('function title'));
+const sf = gs.slice(gs.indexOf('function staffFeed'), gs.indexOf('function readPublished'));
+console.log('  students get newest first (source):', /a\.mon < b\.mon \? 1 : -1/.test(pub));
+console.log('  staff feed does not reverse (source):', !/weeks\.reverse/.test(sf));
