@@ -1,0 +1,9 @@
+# jsdom and its tree. Installed per machine with `npm install` in test/.
+node_modules/
+
+# Working notes that belong in the Claude project, not on a public host.
+# The audit in particular lists weaknesses that are not fixed yet, which is
+# not something to publish next to the code they are weaknesses in.
+Planner-Audit-*.md
+Planner-Handoff.md
+Planner-App-Brief.md
