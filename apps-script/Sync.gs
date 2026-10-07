@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v42 2026-10-07';
+var VERSION = 'v43 2026-10-07';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -226,6 +226,8 @@ function redactLines(lines) {
       var sp = l.spans[j];
       if (sp.priv) continue;                       // '(( ))' run
       if (!sp.t) continue;
+      // a link's label, cut at the version: the student copy of linkLabel()
+      if (sp.url) sp = {t: linkLabel(sp.t, true), url: sp.url, rel: sp.rel};
       // held: the words, marked so the page can show something is coming, and
       // no address anywhere — the flag says "a link exists", never which one
       spans.push(sp.url
@@ -634,9 +636,25 @@ function esc(t) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/* A pasted Drive link labels itself with the file's whole name:
+     01.C.5 - UAPM: Quantitative Acceleration Problems v.26.1 (amta).pdf
+   I see it without the file type; students see it cut at the version:
+     01.C.5 - UAPM: Quantitative Acceleration Problems v.26.1 (amta)
+     01.C.5 - UAPM: Quantitative Acceleration Problems
+   Display only: the stored words are untouched, and an open cell shows them
+   whole. The same function is in render.js and Sync.gs; test-linkname.js
+   holds the two to one table. The file types are the knob. */
+function linkLabel(t, forStudents) {
+  var s = String(t == null ? '' : t), cut = s;
+  if (forStudents) cut = cut.replace(/\s+v\.\d+(?:\.\d+)*(?=[\s.]|$)[\s\S]*$/i, '');
+  cut = cut.replace(/\.(pdf|docx?|pptx?|xlsx?|odt|rtf|txt|csv|png|jpe?g|gif|heic|mp3|m4a|mp4|mov|zip)$/i, '');
+  return cut.trim() ? cut : s;          // never trim a label down to nothing
+}
+
 function spanHtml(sp, staff) {
   if (sp.priv && !staff) return '';                  // same reasoning as above
-  var t = esc(sp.t);
+  // redactLines() already cut a student's labels; cutting again changes nothing
+  var t = esc(sp.url || sp.held ? linkLabel(sp.t, !staff) : sp.t);
   if (sp.url && !staff && sp.rel === false) return t;  // a held link is words only
   if (sp.url) {
     var cls = (staff && !sp.rel) ? ' class="held"' : '';

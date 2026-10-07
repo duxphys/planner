@@ -172,6 +172,22 @@ function roster(view) {
 
 /* ---------- lines -> html ---------- */
 
+/* A pasted Drive link labels itself with the file's whole name:
+     01.C.5 - UAPM: Quantitative Acceleration Problems v.26.1 (amta).pdf
+   I see it without the file type; students see it cut at the version:
+     01.C.5 - UAPM: Quantitative Acceleration Problems v.26.1 (amta)
+     01.C.5 - UAPM: Quantitative Acceleration Problems
+   Display only: the stored words are untouched, and an open cell shows them
+   whole. The same function is in render.js and Sync.gs; test-linkname.js
+   holds the two to one table. The file types are the knob. */
+function linkLabel(t, forStudents) {
+  var s = String(t == null ? '' : t), cut = s;
+  if (forStudents) cut = cut.replace(/\s+v\.\d+(?:\.\d+)*(?=[\s.]|$)[\s\S]*$/i, '');
+  cut = cut.replace(/\.(pdf|docx?|pptx?|xlsx?|odt|rtf|txt|csv|png|jpe?g|gif|heic|mp3|m4a|mp4|mov|zip)$/i, '');
+  return cut.trim() ? cut : s;          // never trim a label down to nothing
+}
+
+
 function lineHTML(l) {
   if (!l) return '<div class="ln"><br></div>';
   // one wrapper per (( )) run, not per span, so the brackets the CSS draws
@@ -181,7 +197,7 @@ function lineHTML(l) {
     if (s.priv && student) continue;                 // (( )) never reaches students
     if (s.priv && !inPriv) { inner += '<span class="pvs">'; inPriv = true; }
     else if (!s.priv && inPriv) { inner += '</span>'; inPriv = false; }
-    const t = esc(s.t) || '&nbsp;';
+    const t = esc(s.url ? linkLabel(s.t, student) : s.t) || '&nbsp;';
     if (!s.url) { inner += t; continue; }
     if (s.rel) inner += `<a class="l" href="${s.url}" data-u="${s.url}" data-r="1">${t}</a>`;
     // preview only: a held link reads as plain text, with a faint rule so it can

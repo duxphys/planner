@@ -172,6 +172,27 @@ const CASES = [
     from: 'return {ok: false, error: why};',
     to:   'throw err;',
     test: 'test-records.js'
+  },
+  {
+    what: 'students are sent link labels cut at the version',
+    file: 'apps-script/Sync.gs',
+    from: 'if (sp.url) sp = {t: linkLabel(sp.t, true), url: sp.url, rel: sp.rel};',
+    to:   'void 0;',
+    test: 'test-linkname.js'
+  },
+  {
+    what: 'the planner shows link labels trimmed',
+    file: 'render.js',
+    from: "esc(s.url ? linkLabel(s.t, student) : s.t)",
+    to:   "esc(s.t)",
+    test: 'test-linkname.js'
+  },
+  {
+    what: 'the served page trims labels too',
+    file: 'apps-script/Sync.gs',
+    from: 'var t = esc(sp.url || sp.held ? linkLabel(sp.t, !staff) : sp.t);',
+    to:   'var t = esc(sp.t);',
+    test: 'test-linkname.js'
   }
 ];
 
