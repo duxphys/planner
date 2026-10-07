@@ -42,7 +42,7 @@ console.log('  and it does not throw     :', !threw);
 
 console.log('');
 console.log('--- the reports use it ---');
-for (const fn of ['checkHealth', 'showToken', 'recordCount', 'publishNow', 'authoriseGitHub']) {
+for (const fn of ['checkHealth', 'showToken', 'recordCount', 'publishNow', 'backupNow']) {
   const b = body(fn);
   const bad = /SpreadsheetApp\.getUi\(\)\.alert\(/.test(b);
   console.log('  ' + fn.padEnd(16), b ? (bad ? 'STILL NEEDS THE MENU' : 'works either way') : '(not present)');
@@ -52,7 +52,7 @@ console.log('');
 console.log('--- the ones that ask a question say where to go ---');
 const ask = body('mustAsk');
 console.log('names the menu     :', /Planner sync/.test(ask));
-for (const fn of ['setGithub', 'withdrawColleagueLinks', 'removeGithubFeeds']) {
+for (const fn of ['withdrawColleagueLinks']) {
   const b = body(fn);
   console.log('  ' + fn.padEnd(24), /mustAsk\(\)/.test(b) ? 'asks properly' : 'CHECK THIS');
 }

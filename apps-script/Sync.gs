@@ -21,10 +21,14 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v41 2026-09-19';
+var VERSION = 'v42 2026-10-07';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
+
+/* A copy of every record goes to Drive at most once a week, after a save that
+   worked. Eight copies is about two months back. */
+var BACKUP_DIR = 'Planner backups', KEEP_BACKUPS = 8, BACKUP_EVERY = 7 * 86400000;
 
 function setup() {
   var p = PropertiesService.getScriptProperties();
@@ -50,7 +54,11 @@ function doPost(e) {
     if (!want || req.token !== want) return out({ok: false, error: 'bad token'});
     if (req.action === 'ping') return out({ok: true, now: nowIso()});
     if (req.action === 'pull') return out(pull(req));
-    if (req.action === 'push') return out(push(req));
+    if (req.action === 'push') {
+      var done = push(req);
+      if (done.ok) backupIfDue();          // after the lock, and it never throws
+      return out(done);
+    }
     if (req.action === 'title') return out(title(req));
     if (req.action === 'absences') return out(absences());
     if (req.action === 'calendar') return out(putCalendar(req));
@@ -151,12 +159,9 @@ function doGet(e) {
 
     var data = staff ? staffFeed(tag) : readPublished(tag);
 
-    /* Two ways to read the same agenda, because the school blocks github.io on
-       student Chromebooks and may or may not unblock it. &page=1 returns the
-       finished page from here — script.google.com, which they cannot block
-       without breaking Workspace. The GitHub page keeps working off the JSON.
-       Both consume the SAME redacted payload, so a held link cannot leak
-       through one and not the other; only the markup is written twice. */
+    /* &page=1 is the finished page; without it, the same payload as JSON.
+       Both come from ONE redacted payload, so a held link cannot leak through
+       one and not the other. */
     if (q.page) return page(data);
     return out(data);
   } catch (err) {
@@ -620,234 +625,6 @@ function buildPublished(tag) {
                      : 'nothing has been published yet — run Publish to students now'};
   }
   return {ok: true, tag: tag, course: info, updated: stamp, links: links, weeks: weeks};
-}
-
-/* ---------- pushing the feed to GitHub ----------
- *
- * Apps Script takes one to three seconds to wake before it does any work, and
- * a student page that waits on it can never be quick. So publishing also
- * writes each class's feed into the repo as a static file. The page then reads
- * it from GitHub's CDN — same origin as the page itself, no wake-up.
- *
- * Needs a fine-grained token with Contents: read and write on that one repo,
- * stored by "Set GitHub token". Nothing else here uses it.
- */
-
-/**
- * Run this ONCE from the Apps Script editor, not from the menu.
- *
- * Making outbound web requests is a permission this script never needed until
- * it started pushing feeds to GitHub. A menu item runs under whatever you
- * approved last time and simply fails; running from the editor re-prompts, and
- * the consent screen then includes "Connect to an external service".
- */
-function authoriseGitHub() {
-  var res = UrlFetchApp.fetch('https://api.github.com/', {muteHttpExceptions: true});
-  var msg = 'Outbound requests are authorised (GitHub answered ' +
-            res.getResponseCode() + ').\n\n';
-  var st = ghStatus();
-  if (!st.set) msg += 'No repo or token stored yet — run "Set GitHub token" next.';
-  else if (!st.ok) msg += 'The stored token still does not work:\n  ' + st.why;
-  else msg += 'The stored token works' + (st.exp ? ' \u2014 ' + st.exp : '') + '.';
-  say(msg);
-  return msg;
-}
-
-function ghConfig() {
-  var p = PropertiesService.getScriptProperties();
-  return {token: p.getProperty('GH_TOKEN') || '', repo: p.getProperty('GH_REPO') || ''};
-}
-
-function setGithub() {
-  var ui = mustAsk();
-  var r = ui.prompt('GitHub repo',
-    'owner/name — e.g. duxphys/planner\n\nLeave blank to stop publishing to GitHub.',
-    ui.ButtonSet.OK_CANCEL);
-  if (r.getSelectedButton() !== ui.Button.OK) return;
-  var repo = String(r.getResponseText()).trim();
-  var p = PropertiesService.getScriptProperties();
-
-  /* Refuse anything that is obviously not owner/name. A token pasted in here
-     ends up in a URL path instead of a header, which is not where a secret
-     should ever travel. Tolerate a full GitHub URL, since that is a reasonable
-     thing to paste. */
-  if (repo) {
-    var m = repo.match(/github\.com\/([^\/\s]+\/[^\/\s#?]+)/);
-    if (m) repo = m[1];
-    repo = repo.replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
-    if (/^(github_pat_|ghp_|gho_|ghs_)/.test(repo) || repo.length > 80) {
-      ui.alert('That looks like a token, not a repository.\n\n' +
-               'This box wants owner/name \u2014 duxphys/planner.\n' +
-               'The token goes in the next box, where it is sent as a header ' +
-               'rather than ending up in a web address.');
-      return;
-    }
-    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
-      ui.alert('"' + repo + '" is not owner/name.\n\nFor example: duxphys/planner');
-      return;
-    }
-  }
-  if (!repo) {
-    p.deleteProperty('GH_REPO'); p.deleteProperty('GH_TOKEN');
-    ui.alert('GitHub publishing is off. Students fall back to reading from here.');
-    return;
-  }
-  var t = ui.prompt('GitHub token for ' + repo,
-    'A fine-grained token with Contents: read and write on ' + repo + ' only.\n\n' +
-    'github.com > Settings > Developer settings > Fine-grained tokens.',
-    ui.ButtonSet.OK_CANCEL);
-  if (t.getSelectedButton() !== ui.Button.OK) return;
-  var tok = String(t.getResponseText()).trim();
-  if (!/^(github_pat_|ghp_)/.test(tok)) {
-    ui.alert('That does not look like a GitHub token.\n\n' +
-             'A fine-grained one starts github_pat_ and a classic one ghp_.');
-    return;
-  }
-  p.setProperty('GH_REPO', repo);
-  p.setProperty('GH_TOKEN', tok);
-
-  var st = ghStatus();                      // try it now, not at the next publish
-  if (!st.ok) {
-    ui.alert('Saved, but GitHub refused it:\n\n  ' + st.why +
-             '\n\nFix that and run this again. Until it works, students keep ' +
-             'reading from this script, which still works but is slower.');
-    return;
-  }
-  ui.alert('Working' + (st.exp ? ' \u2014 ' + st.exp : '') + '.\n\n' +
-           'The next publish writes feed/p1.json and the rest into ' + repo +
-           '.\n\nGitHub Pages takes a minute or so to serve a new file. ' +
-           'Put the expiry in your calendar: when it lapses, pushes fail and the ' +
-           'only sign is students seeing an old plan. "Check health" also reports it.');
-}
-
-/**
- * Ask GitHub whether the token still works and how long it has left.
- * A token that has expired fails silently — the only sign is students reading
- * a stale plan — so this is checked rather than assumed.
- */
-function ghStatus() {
-  var cfg = ghConfig();
-  if (!cfg.repo || !cfg.token) return {set: false};
-  var res;
-  try {
-    res = UrlFetchApp.fetch('https://api.github.com/repos/' + cfg.repo, {
-      headers: {Authorization: 'Bearer ' + cfg.token, Accept: 'application/vnd.github+json'},
-      muteHttpExceptions: true});
-  } catch (err) {
-    if (/permission to call UrlFetchApp/.test(String(err))) {
-      return {set: true, ok: false, needsAuth: true,
-              why: 'this script has never been allowed to make web requests.\n' +
-                   '  Open Extensions > Apps Script, pick authoriseGitHub in the\n' +
-                   '  function dropdown, press Run, and approve the prompt.'};
-    }
-    return {set: true, ok: false, why: 'could not reach GitHub: ' + err};
-  }
-  var code = res.getResponseCode();
-  if (code === 401) return {set: true, ok: false, why: 'the token is expired or revoked'};
-  if (code === 403) return {set: true, ok: false, why: 'the token lacks Contents: write, ' +
-                                                       'or the org has not approved it'};
-  if (code === 404) return {set: true, ok: false, why: 'no such repo, or the token cannot see it'};
-  if (code !== 200) return {set: true, ok: false, why: 'GitHub said ' + code};
-
-  // github-authentication-token-expiration comes back on fine-grained tokens
-  var exp = res.getHeaders()['github-authentication-token-expiration'] ||
-            res.getAllHeaders()['github-authentication-token-expiration'] || '';
-  var left = '';
-  if (exp) {
-    var d = new Date(String(exp).replace(' UTC', 'Z').replace(' ', 'T'));
-    if (!isNaN(d.getTime())) {
-      var days = Math.round((d - new Date()) / 86400000);
-      left = days + ' day(s) left (expires ' +
-             Utilities.formatDate(d, Session.getScriptTimeZone(), 'd MMM yyyy') + ')';
-    }
-  }
-  return {set: true, ok: true, exp: left,
-          soon: /^-|^[0-9] |^1[0-4] /.test(left) || (left && parseInt(left, 10) <= 21)};
-}
-
-/** one authenticated call to the GitHub API */
-function ghApi(path, method, body) {
-  var cfg = ghConfig();
-  var opt = {method: method || 'get', muteHttpExceptions: true,
-    headers: {Authorization: 'Bearer ' + cfg.token, Accept: 'application/vnd.github+json'}};
-  if (body) { opt.contentType = 'application/json'; opt.payload = JSON.stringify(body); }
-  var res = UrlFetchApp.fetch('https://api.github.com/repos/' + cfg.repo + path, opt);
-  var code = res.getResponseCode();
-  if (code < 200 || code >= 300) {
-    throw new Error(method || 'GET' + ' ' + path + ' -> ' + code + ': ' +
-                    String(res.getContentText()).slice(0, 160));
-  }
-  return JSON.parse(res.getContentText());
-}
-
-/**
- * Take the published feeds off GitHub and stop writing them.
- *
- * They were added to make student pages load quickly, by having the browser
- * read a static file instead of waiting for this script to start. That put my
- * classwork, homework, and released Drive links on a personally owned public
- * host, which is not where district instructional content belongs.
- *
- * Deletes the files in one commit, then forgets the repository and the
- * credential. Student pages fall back to reading from here, which is slower and
- * correct.
- */
-function removeGithubFeeds() {
-  var ui = mustAsk();
-  var cfg = ghConfig();
-  var p = PropertiesService.getScriptProperties();
-
-  if (!cfg.repo || !cfg.token) {
-    p.deleteProperty('GH_REPO'); p.deleteProperty('GH_TOKEN'); p.deleteProperty('lastFeedPush');
-    ui.alert('Nothing is being published to GitHub. Any stored settings are cleared.');
-    return;
-  }
-  if (ui.alert('Remove the published feeds from ' + cfg.repo + '?',
-        'Deletes every feed/*.json file and stops writing them.\n\n' +
-        'Student pages will read from this script instead, which takes a second ' +
-        'or two longer.\n\nRevoke the token on GitHub afterwards.',
-        ui.ButtonSet.OK_CANCEL) !== ui.Button.OK) return;
-
-  var gone = [], failed = '';
-  try {
-    var repo = ghApi(''), branch = repo.default_branch || 'main';
-    var ref = ghApi('/git/ref/heads/' + branch);
-    var base = ghApi('/git/commits/' + ref.object.sha);
-
-    // every file under feed/, whatever it is called
-    var tree = ghApi('/git/trees/' + base.tree.sha + '?recursive=1');
-    var drop = (tree.tree || []).filter(function (e) {
-      return e.type === 'blob' && e.path.indexOf('feed/') === 0;
-    });
-    if (!drop.length) {
-      ui.alert('No feed files are in ' + cfg.repo + ' \u2014 nothing to delete.\n\n' +
-               'Publishing to GitHub is now switched off.');
-    } else {
-      var made = ghApi('/git/trees', 'post', {base_tree: base.tree.sha,
-        tree: drop.map(function (e) {
-          return {path: e.path, mode: '100644', type: 'blob', sha: null};   // null removes it
-        })});
-      var commit = ghApi('/git/commits', 'post',
-        {message: 'remove published agenda feeds', tree: made.sha, parents: [ref.object.sha]});
-      ghApi('/git/refs/heads/' + branch, 'patch', {sha: commit.sha});
-      gone = drop.map(function (e) { return e.path; });
-    }
-  } catch (err) {
-    failed = String(err);
-  }
-
-  p.deleteProperty('GH_REPO');
-  p.deleteProperty('GH_TOKEN');
-  p.deleteProperty('lastFeedPush');
-
-  ui.alert(
-    (gone.length ? 'Deleted from ' + cfg.repo + ':\n  ' + gone.join('\n  ') + '\n\n' : '') +
-    (failed ? 'The delete did not go through:\n  ' + failed +
-              '\n\nRemove the feed/ folder by hand on GitHub.\n\n' : '') +
-    'Publishing to GitHub is off and the stored credential is cleared.\n\n' +
-    'Two things left for you:\n' +
-    '  1. Revoke the token at github.com > Settings > Developer settings\n' +
-    '  2. The files stay in the repository history \u2014 delete the repo if that matters');
 }
 
 /* ---------- the page, served from here ---------- */
@@ -1322,6 +1099,11 @@ function push(req) {
     if (appends.length) {
       var start = sh.getLastRow() + 1;
       if (start + appends.length > MAX_ROWS) return {ok: false, error: 'record tab is full'};
+      /* A new tab has 1000 rows and a range past the last one is refused, so
+         the record that needed row 1001 would have failed every save from then
+         on. Grow ahead of need, in steps large enough that this is rare. */
+      var short = start + appends.length - 1 - sh.getMaxRows();
+      if (short > 0) sh.insertRowsAfter(sh.getMaxRows(), short + 500);
       sh.getRange(start, 1, appends.length, 4).setValues(appends);
     }
     SpreadsheetApp.flush();
@@ -1329,6 +1111,65 @@ function push(req) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ---------- backup ---------- */
+
+/**
+ * Every record, to Drive, at most once a week - the HW app's stash(), run by
+ * the server, since the server holds the records. Each row exactly as stored,
+ * so a restore puts back what was there rather than a re-encoding of it.
+ *
+ * Never throws: a backup that fails must not cost the save it followed. The
+ * reason is kept for Check health, and a failure is not retried for a day, so
+ * a Drive outage does not slow every save.
+ */
+function backupIfDue() {
+  var p = PropertiesService.getScriptProperties();
+  var at = Date.parse(p.getProperty('BACKUP_AT') || '');
+  if (at && Date.now() - at < BACKUP_EVERY) return;
+  var failed = Date.parse(String(p.getProperty('BACKUP_ERROR') || '').slice(0, 24));
+  if (failed && Date.now() - failed < 86400000) return;
+  backup();
+}
+
+function backup() {
+  var p = PropertiesService.getScriptProperties();
+  try {
+    var all = readAll(recTab());
+    var records = Object.keys(all).map(function (k) {
+      return {key: k, updatedAt: all[k].updatedAt, device: all[k].device, json: all[k].json};
+    });
+    var it = DriveApp.getFoldersByName(BACKUP_DIR);
+    var dir = it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_DIR);
+    var name = 'Planner records ' +
+      Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd') + '.json';
+    var same = dir.getFilesByName(name);             // one file a day, the latest
+    while (same.hasNext()) same.next().setTrashed(true);
+    dir.createFile(name, JSON.stringify({version: VERSION, made: nowIso(), records: records}),
+                   'application/json');
+
+    var kept = [], f = dir.getFiles();
+    while (f.hasNext()) { var x = f.next(); kept.push({f: x, t: x.getDateCreated().getTime()}); }
+    kept.sort(function (a, b) { return b.t - a.t; });
+    for (var i = KEEP_BACKUPS; i < kept.length; i++) kept[i].f.setTrashed(true);
+
+    p.setProperty('BACKUP_AT', nowIso());
+    p.deleteProperty('BACKUP_ERROR');
+    return {ok: true, name: name, records: records.length, folder: dir.getUrl()};
+  } catch (err) {
+    var why = String(err && err.message || err);
+    p.setProperty('BACKUP_ERROR', nowIso() + ' ' + why);
+    console.error('backup failed: ' + why);
+    return {ok: false, error: why};
+  }
+}
+
+/** From the menu or the editor: a backup now, whatever the last one's date. */
+function backupNow() {
+  var r = backup();
+  say(r.ok ? 'Backed up ' + r.records + ' record(s) as ' + r.name + '\n\n' + r.folder
+           : 'The backup did not work:\n  ' + r.error);
 }
 
 /* ---------- menu ---------- */
@@ -1362,8 +1203,7 @@ function onOpen() {
     .addItem('Show token', 'showToken')
     .addItem('Record count', 'recordCount')
     .addSeparator()
-    .addItem('Set GitHub token', 'setGithub')
-    .addItem('Remove feeds from GitHub', 'removeGithubFeeds')
+    .addItem('Back up records now', 'backupNow')
     .addItem('Check health', 'checkHealth')
     .addItem('Remove dead triggers', 'removeDeadTriggers')
     .addSeparator()
@@ -1492,16 +1332,20 @@ function checkHealth() {
   else if (ready < tags.length) lines.push('  Publish rebuilds them all.');
 
   lines.push('');
-  lines.push('GITHUB');
-  var gh = ghConfig();
-  if (!gh.repo || !gh.token) {
-    lines.push('  nothing stored \u2014 this script cannot reach GitHub');
-  } else {
-    var st = ghStatus();
-    lines.push('  a credential for ' + gh.repo + ' is still stored');
-    lines.push('  ' + (st.ok ? 'it works' + (st.exp ? ' \u2014 ' + st.exp : '') : 'it does not work: ' + st.why));
-    lines.push('  Nothing is published there any more. Run "Remove feeds from');
-    lines.push('  GitHub" to delete what is left and clear this.');
+  lines.push('BACKUP');
+  var bp = PropertiesService.getScriptProperties();
+  var bAt = bp.getProperty('BACKUP_AT'), bErr = bp.getProperty('BACKUP_ERROR');
+  lines.push('  ' + (bAt ? 'last copy ' + bAt.slice(0, 10) + ', in Drive \u203a ' + BACKUP_DIR
+                         : 'none yet \u2014 the next save makes one, or "Back up records now"'));
+  if (bErr) lines.push('  THE LAST ATTEMPT FAILED: ' + bErr);
+  /* The code that wrote to GitHub is gone. A credential it stored is not, and
+     nothing here can use it or would notice it. */
+  if (bp.getProperty('GH_TOKEN') || bp.getProperty('GH_REPO')) {
+    lines.push('');
+    lines.push('GITHUB');
+    lines.push('  A GitHub credential is still stored and nothing uses it. Delete');
+    lines.push('  GH_TOKEN, GH_REPO and lastFeedPush in Project Settings \u203a');
+    lines.push('  Script Properties, then revoke the token on GitHub.');
   }
 
   lines.push('');
