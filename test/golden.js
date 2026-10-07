@@ -13,7 +13,7 @@
  * snapshot of the markup would fail on every intentional change to the UI. */
 const fs = require('fs'), crypto = require('crypto');
 const {JSDOM} = require('jsdom');
-process.chdir('/home/claude/app');
+process.chdir(require('path').join(__dirname, '..'));
 const html = fs.readFileSync('index.html','utf8')
   .replace(/<link[^>]*>/g,'').replace(/<script[^>]*><\/script>/g,'').replace('<script>start();</script>','');
 const dom = new JSDOM(html, {pretendToBeVisual:true});
