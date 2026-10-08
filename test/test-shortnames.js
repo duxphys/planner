@@ -22,10 +22,14 @@ const FILES = [HEAD,
   row({'file id': ID.lab, num: '01.A.4', name: 'Lab - Practice - Carts', ver: '26.1'})];
 const SHORT = [['long', 'short'], ['Practice', 'Prac'], ['Video & Textbook Notes', 'V&TNotes']];
 const tab = rows => ({getDataRange: () => ({getDisplayValues: () => rows.map(r => r.slice())})});
-const run = short => new Function('PropertiesService', 'SpreadsheetApp',
+const run = (short, tabName) => new Function('PropertiesService', 'SpreadsheetApp',
   grab('fileId') + docsSection + '; return docNames();')(
   {getScriptProperties: () => ({getProperty: k => ({DOCS_ID: 'DOCS'})[k] || null})},
-  {openById: () => ({getSheetByName: n => n === '_Files' ? tab(FILES) : (n === 'Short names' && short ? tab(short) : null)})});
+  {openById: () => {
+    const tabs = [Object.assign(tab(FILES), {getName: () => '_Files'})].concat(short ?
+      [Object.assign(tab(short), {getName: () => tabName || 'Short names'})] : []);
+    return {getSheetByName: n => tabs.find(t => t.getName() === n) || null, getSheets: () => tabs};
+  }});
 
 console.log('--- short forms ---');
 const r = run(SHORT), F = r.files || {};
@@ -33,7 +37,11 @@ console.log('students see Prac            :', !!F[ID.pr] && F[ID.pr].s === '01.A
 console.log('and I see it, version and all:', !!F[ID.pr] && F[ID.pr].f === '01.A.8 - Prac - Models of Constant Velocity v.26.1 (amta)');
 console.log('V&TNotes, as asked           :', !!F[ID.vt] && F[ID.vt].s === '01.B.1 - V&TNotes - UAM Equations');
 console.log('only at the start of a name  :', !!F[ID.lab] && F[ID.lab].s === '01.A.4 - Lab - Practice - Carts');
-const none = run(null).files || {};
+const nr = run(null), none = nr.files || {};
 console.log('no tab: the full name        :', !!none[ID.pr] && none[ID.pr].s === '01.A.8 - Practice - Models of Constant Velocity');
+console.log('  and it says so             :', /no Short names tab in the docs workbook/.test(nr.note || ''));
+console.log('with the tab, nothing to say :', r.ok === true && !r.note);
+const loose = run(SHORT, ' short Names ').files || {};
+console.log('found whatever its case/spaces:', !!loose[ID.pr] && loose[ID.pr].s === '01.A.8 - Prac - Models of Constant Velocity');
 const bad = run([['from', 'to'], ['Practice', 'Prac']]);
 console.log('a tab without long/short is said:', bad.ok === false && /needs a long and a short column/.test(bad.error || ''));

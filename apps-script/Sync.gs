@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v45 2026-10-07';
+var VERSION = 'v46 2026-10-07';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -503,7 +503,7 @@ function publish() {
        the stored names, and says why in Check health. */
     var dn = docNames(), names = dn.ok ? dn.files : {};
     PropertiesService.getScriptProperties().setProperty('DOCS_STATE',
-      (dn.ok ? dn.count + ' files from 20' + dn.year : 'NOT READ: ' + dn.error) + ', at ' + stamp);
+      (dn.ok ? dn.count + ' files from 20' + dn.year + (dn.note ? '; ' + dn.note : '') : 'NOT READ: ' + dn.error) + ', at ' + stamp);
 
     cal.weeks.forEach(function (w) {
       var days = (w.days || []).filter(function (d) { return d.iso <= limit; });
@@ -1056,6 +1056,8 @@ function docNames() {
   if (missing.length) return {ok: false, error: 'the docs workbook has no ' + missing.join(', ') + ' column'};
   var forms = shortForms(ss);
   if (typeof forms === 'string') return {ok: false, error: forms};
+  var note = forms ? '' : 'no ' + DOCS_SHORT + ' tab in the docs workbook, so names are not shortened';
+  forms = forms || [];
   var get = function (r, w) { return String(r[col[w]] == null ? '' : r[col[w]]).trim(); };
   var yr = function (r) { return parseInt(get(r, 'ver').slice(0, 2), 10) || 0; };
 
@@ -1073,19 +1075,21 @@ function docNames() {
     files[fid] = {s: f.head + ' - ' + f.name, f: docName(f)};
     n++;
   }
-  return {ok: true, year: String(year), count: n, files: files};
+  return {ok: true, year: String(year), count: n, files: files, note: note};
 }
 
 /* Short forms for the start of a name, typed once on the docs workbook's
    "Short names" tab (long | short): "Practice - Springs" reads "Prac - Springs".
-   Only a whole leading segment, followed by " - ", is replaced. No tab means
-   no short forms; a tab without both columns is an error. The homework
+   Only a whole leading segment, followed by " - ", is replaced. The tab is
+   found whatever its case or stray spaces. No tab gives null, which the caller
+   says out loud; a tab without both columns is an error. The homework
    checker's Code.gs has the same two functions, word for word;
    claude/docs-test/test-short-names.js holds them together. */
 var DOCS_SHORT = 'Short names';
 function shortForms(ss) {
-  var sh = ss.getSheetByName(DOCS_SHORT);
-  if (!sh) return [];
+  var want = DOCS_SHORT.toLowerCase(), sh = null;
+  ss.getSheets().forEach(function (t) { if (!sh && String(t.getName()).trim().toLowerCase() === want) sh = t; });
+  if (!sh) return null;
   var rows = sh.getDataRange().getDisplayValues();
   var head = (rows[0] || []).map(function (h) { return String(h).trim().toLowerCase(); });
   var a = head.indexOf('long'), b = head.indexOf('short');

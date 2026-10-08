@@ -249,6 +249,27 @@ const CASES = [
     from: "  if (typeof forms === 'string') return {ok: false, error: forms};\n",
     to:   "  if (typeof forms === 'string') forms = [];\n",
     test: 'test-shortnames.js'
+  },
+  {
+    what: 'a missing Short names tab is said',
+    file: 'apps-script/Sync.gs',
+    from: "var note = forms ? '' : 'no ' + DOCS_SHORT",
+    to:   "var note = '' ? '' : 'no ' + DOCS_SHORT",
+    test: 'test-shortnames.js'
+  },
+  {
+    what: 'the planner shows a note that comes with the list',
+    file: 'sync.js',
+    from: "  docsNote = d.note || '';",
+    to:   "  void 0;",
+    test: 'test-docnames.js'
+  },
+  {
+    what: 'the Short names tab is found whatever its case',
+    file: 'apps-script/Sync.gs',
+    from: "if (!sh && String(t.getName()).trim().toLowerCase() === want) sh = t;",
+    to:   "if (!sh && t.getName() === DOCS_SHORT) sh = t;",
+    test: 'test-shortnames.js'
   }
 ];
 
