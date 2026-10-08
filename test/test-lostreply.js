@@ -28,7 +28,7 @@ global.fetch = async (u, o) => {
   if (req.action !== 'push') return {json: async () => ({ok:true, now:'T2', records:[], saved:[], conflicts:[]})};
   served = req.records[0];
   return {json: async () => ({ok:true, now:'T2', saved:[], conflicts:[{
-    key: KEY, updatedAt: 'T2', device: 'MacIntel-abc', lines: mineLines
+    key: KEY, updatedAt: 'T2', device: req.device, lines: mineLines
   }]})};
 };
 
@@ -43,13 +43,14 @@ console.log('base moved on       :', base[KEY], '(should be T2)');
 asked = 0;
 const newer = [{bullet:false, private:false,
   spans:[{t:'Energy stations - revised', url:null, rel:false, priv:false}]}];
-let pushes = 0;
+let pushes = 0, sentLines = [];
 global.fetch = async (u, o) => {
   const req = JSON.parse(o.body);
   if (req.action !== 'push') return {json: async () => ({ok:true, now:'T3', records:[], saved:[], conflicts:[]})};
   pushes++;
+  sentLines.push(req.records[0].lines);
   if (pushes === 1) return {json: async () => ({ok:true, now:'T3', saved:[], conflicts:[{
-    key: KEY, updatedAt: 'T3', device: 'MacIntel-abc', lines: mineLines }]})};
+    key: KEY, updatedAt: 'T3', device: req.device, lines: mineLines }]})};
   return {json: async () => ({ok:true, now:'T4',
     saved:[{key: KEY, updatedAt: 'T4'}], conflicts:[]})};
 };
@@ -59,7 +60,7 @@ await new Promise(r => setTimeout(r, 30));
 console.log('');
 console.log('--- my newer edit, same machine ---');
 console.log('asked me to choose  :', asked, '(should be 0)');
-console.log('resent over the top :', pushes === 2);
+console.log('resent over the top :', pushes === 2 && sameLines(sentLines[1], newer));
 console.log('queue cleared       :', Object.keys(queue).length === 0);
 
 // a genuinely different machine must still stop and ask

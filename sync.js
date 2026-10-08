@@ -41,6 +41,27 @@ let absent = {};               // keyed 'P1|9/14', holding lines of codes and na
 let absentNote = '';           // why they are missing, when they are
 const ABSENT_CODES = ['AB', 'T', 'TE', 'TX'];
 let syncing = false, retryTimer = null;
+let storeDead = false;         // the browser refused the last save to its storage
+
+/* Each tab keeps its own unsent edits under its own id, so two tabs on one
+   machine cannot erase each other's queue, and each sends its own device name,
+   so a clash between them is a real conflict - both kept - not a conflict
+   "with myself" resent over the top. The id lives in sessionStorage, which a
+   reload keeps. A tab's entry untouched for TAB_ORPHAN ms belongs to a tab that
+   has gone; the next tab to open takes its edits up, each still carrying the
+   version it was made against. */
+const TAB_ORPHAN = 5 * 60000;
+const TAB = (function () {
+  let t = null;
+  try { t = sessionStorage.getItem('planner.tab'); } catch (e) {}
+  if (!t) {
+    t = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    try { sessionStorage.setItem('planner.tab', t); } catch (e) {}
+  }
+  return t;
+})();
+let adopted = [];              // other tabs' entries taken up, dropped on the next save
+const me = () => cfg.device + '.' + TAB.slice(-4);
 let chain = 0;                 // consecutive follow-up sends, so a refusal cannot spin
 let srvVersion = '';           // which deployment answered last, named in any failure
 
@@ -49,8 +70,21 @@ function loadSync() {
     const s = JSON.parse(localStorage.getItem(SYNC_KEY) || '{}');
     cfg = Object.assign(cfg, s.cfg || {});
     base = s.base || {};
-    queue = s.queue || {};
+    queue = {};
+    /* Mine, and any tab's that was abandoned. A store from before v54 has one
+       shared queue and no tabs: it is taken up as an abandoned tab's. */
+    const tabs = s.tabs || (s.queue && Object.keys(s.queue).length ? {legacy: {at: 0, queue: s.queue, base: s.base}} : {});
+    Object.keys(tabs).sort((a, b) => (tabs[a].at || 0) - (tabs[b].at || 0)).forEach(id => {
+      const t = tabs[id];
+      if (id !== TAB && Date.now() - (t.at || 0) < TAB_ORPHAN) return;   // an open tab's
+      for (const k of Object.keys(t.queue || {})) {
+        queue[k] = t.queue[k];
+        if (t.base && t.base[k] !== undefined) base[k] = t.base[k];
+      }
+      if (id !== TAB) adopted.push(id);
+    });
     titles = s.titles || {};
+    refCache = s.ref || null;
     docsByFile = s.docs || {};          // last copy read, so a cold start has names
     /* lastPull is deliberately NOT restored. The model is rebuilt from data.js
        on every load, so the client starts each session knowing nothing — an
@@ -66,10 +100,32 @@ function loadSync() {
   }
 }
 
+/* Read, merge, write: what another tab saved is kept. Each tab's queue is its
+   own entry, with the version each edit was made against. The shared base is a
+   cold-start cache, newest wins, except for a key this tab holds an edit for.
+   `queue` holds every tab's edits together, for anything reading the old
+   shape. A refusal is remembered and said, never swallowed. */
 function saveSync() {
   try {
-    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base, queue, titles, docs: docsByFile}));
-  } catch (e) { /* storage unavailable: the queue lives only for this session */ }
+    const s = JSON.parse(localStorage.getItem(SYNC_KEY) || '{}');
+    const tabs = s.tabs || {};
+    for (const id of adopted) delete tabs[id];
+    const mine = Object.keys(queue);
+    if (mine.length) {
+      const b = {};
+      for (const k of mine) b[k] = base[k];
+      tabs[TAB] = {at: Date.now(), queue, base: b};
+    } else delete tabs[TAB];
+    const all = {};
+    for (const id of Object.keys(tabs)) Object.assign(all, tabs[id].queue);
+    const merged = Object.assign({}, s.base || {});
+    for (const k of Object.keys(base)) {
+      if (!(k in merged) || queue[k] !== undefined || String(base[k]) > String(merged[k])) merged[k] = base[k];
+    }
+    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base: merged, queue: all, tabs, titles, docs: docsByFile, ref: refCache}));
+    adopted = [];
+    storeDead = false;
+  } catch (e) { storeDead = true; }
 }
 
 /* ---------- record keys ---------- */
@@ -127,9 +183,12 @@ async function call(action, body, again) {
   const res = await fetch(cfg.url, {
     method: 'POST',
     headers: {'Content-Type': 'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({action, token: cfg.token, device: cfg.device}, body))
+    body: JSON.stringify(Object.assign({action, token: cfg.token, device: me()}, body))
   });
-  const data = await res.json();
+  let data;
+  // a Google sign-in or error page instead of data, named as one
+  try { data = await res.json(); }
+  catch (e) { throw new Error('the endpoint sent a page, not data - is the deployment current?'); }
   if (data && data.version) srvVersion = data.version;
   if (!data.ok) {
     if (LOST_POST.test(data.error || '') && !again) {
@@ -217,12 +276,14 @@ async function flush() {
     }
     for (const c of data.conflicts || []) {
       base[c.key] = c.updatedAt;
+      /* The server already holds exactly this: it landed, whoever sent it. */
+      if (sameLines(queue[c.key], c.lines)) { delete queue[c.key]; continue; }
       /* A conflict with MYSELF is not a conflict. On a poor connection a push
          can reach the server and have its reply lost on the way back — the
          record is saved, but this machine still thinks it failed, so it retries
          with a base the server has already moved past. The rejection then names
          this very device. Take the write as landed and stop asking. */
-      if (c.device && c.device === cfg.device) {
+      if (c.device && c.device === me()) {
         if (sameLines(queue[c.key], c.lines)) {
           delete queue[c.key];               // it was already saved: nothing to do
         } else {
@@ -237,7 +298,7 @@ async function flush() {
     setNote(Object.keys(queue).length ? Object.keys(queue).length + ' pending' : 'Saved');
   } catch (err) {
     saveSync();                                 // don't rely on the caller having saved
-    setNote('Offline \u2014 ' + Object.keys(queue).length + ' pending');
+    setNote(failNote(err));
     clearTimeout(retryTimer);
     retryTimer = later(flush, RETRY_MS);   // the queue is on disk; it can wait
   } finally {
@@ -407,6 +468,111 @@ async function pullAbsences() {
   return n;
 }
 
+/* ---------- reference-in: Courses and Build Calendar ---------- */
+
+/* data.js stays the record of the weeks it has. From the workbook come course
+   names, sections and colours, by date - so P7's lab can stop on 22 Jan and
+   P6's start on 25 Jan - and the school days after data.js's last week, from
+   Build Calendar. The last copy read is kept on this machine, so the new weeks
+   are there offline. A copy with a problem in it is not used at all. */
+const BASE_WEEKS = WEEKS.length;
+const BASE_COURSES = WEEKS.map(w => w.days.map(d => d.blocks.map(b => b.course)));
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+let refNote = '', refCache = null, refApplied = '', refAppliedNote = '';
+
+const pad2 = n => String(n).padStart(2, '0');
+const dateOf = iso => { const p = iso.split('-'); return new Date(+p[0], p[1] - 1, +p[2], 12); };
+const isoAdd = (iso, n) => { const t = dateOf(iso); t.setDate(t.getDate() + n);
+  return t.getFullYear() + '-' + pad2(t.getMonth() + 1) + '-' + pad2(t.getDate()); };
+/* The waterfall: day 1 runs P1-P5, and each day starts five periods on. ASP
+   meets whoever had Block 5. */
+const rotation = k => [0, 1, 2, 3, 4].map(i => ((k - 1) * 5 + i) % 7 + 1);
+
+function courseFor(courses, period, iso) {
+  const c = courses.find(c => c.period === period && (!c.from || iso >= c.from) && (!c.until || iso <= c.until));
+  return c ? {sym: c.sym, tag: 'P' + period, name: c.name, sec: c.sec, fill: c.fill, ink: c.ink} : null;
+}
+
+function referenceWeeks(ref, problems) {
+  const cal = ref.calendar, courses = ref.courses || [];
+  if (!cal) return {weeks: [], note: ''};
+  const days0 = WEEKS[BASE_WEEKS - 1].days, last0 = days0[days0.length - 1].iso;
+  let lastCycle = 0;
+  for (const w of WEEKS.slice(0, BASE_WEEKS)) for (const d of w.days) if (d.cycle) lastCycle = d.cycle;
+  let mon = isoAdd(last0, 1);
+  while (dateOf(mon).getDay() !== 1) mon = isoAdd(mon, 1);       // the Monday after data.js's last week
+  const first = cal.first || mon;
+  if (first <= last0) problems.push('Build Calendar: the first school day, ' + first +
+    ', is already in the planner, which runs to ' + last0 + ' - set it to a day after that');
+  else if (cal.last < first) problems.push('Build Calendar: the last day to build is before the first school day');
+  else if (first > mon && !cal.cycle) problems.push('Build Calendar: Its cycle day is needed when the first school day is after ' + mon);
+  if (problems.length) return {weeks: [], note: ''};
+  let cycle = cal.cycle || lastCycle % 7 + 1, gap = 0;
+  const ex = {};
+  for (const e of cal.exceptions || []) (ex[e.iso] = ex[e.iso] || []).push(e);
+  const weeks = [];
+  for (; mon <= cal.last; mon = isoAdd(mon, 7)) {
+    const days = [];
+    for (let i = 0; i < 5; i++) {
+      const iso = isoAdd(mon, i), t = dateOf(iso);
+      const d = WEEKDAY[t.getDay()] + ' ' + MONTHS[t.getMonth()].charAt(0) + MONTHS[t.getMonth()].slice(1).toLowerCase() + ' ' + t.getDate();
+      const es = ex[iso] || [], off = es.find(e => e.kind === 'off');
+      const note = es.filter(e => e.kind !== 'off').map(e => e.label || (e.kind === 'half' ? '½ Day' : ''))
+        .filter(Boolean).join(' · ');
+      const why = iso < first || iso > cal.last ? 'Not in the Build Calendar' : off ? (off.label || 'No school') : '';
+      if (iso < first) gap++;
+      const rot = why ? [] : rotation(cycle);
+      days.push({d, iso, cycle: why ? null : cycle, off: why, note,
+        blocks: rot.concat(rot.length ? [rot[4]] : []).map((per, bi) => ({
+          block: B[bi][0], t0: B[bi][1], t1: B[bi][2], asp: !!B[bi][3],
+          period: per, course: courseFor(courses, per, iso), cw: null, hw: null})),
+        noteLines: asLines(note), offLines: asLines(why)});
+      if (!why) cycle = cycle % 7 + 1;
+    }
+    /* A week the calendar closes altogether - a vacation - is left out, as
+       data.js leaves out the week after Christmas. */
+    if (days.every(x => x.off && x.off !== 'Not in the Build Calendar')) continue;
+    const fri = isoAdd(mon, 4), a = dateOf(mon), z = dateOf(fri);
+    weeks.push({label: MONTHS[a.getMonth()] + ' ' + a.getDate() + ' – ' + MONTHS[z.getMonth()] + ' ' +
+                       z.getDate() + ', ' + z.getFullYear(), mon, days});
+  }
+  return {weeks, note: gap ? gap + ' school day(s) before the Build Calendar’s first are blank' : ''};
+}
+
+/** True when the weeks changed: their records then need a full pull. */
+function applyReference(ref) {
+  const mark = stamp(ref);
+  if (mark === refApplied) { refNote = refAppliedNote; return false; }
+  if (typeof editingKey === 'function' && editingKey()) return false;    // never under an open cell
+  const problems = (ref.problems || []).slice();
+  const built = problems.length ? null : referenceWeeks(ref, problems);
+  if (problems.length) { refNote = 'Courses / Build Calendar not used — ' + problems.join('; '); return false; }
+  WEEKS.length = BASE_WEEKS;
+  /* data.js's own days: which periods meet stays data.js's; only a course's
+     name, section and colours come from the tab, where it has a row. */
+  WEEKS.forEach((w, wi) => w.days.forEach((d, di) => d.blocks.forEach((b, bi) => {
+    const was = BASE_COURSES[wi][di][bi];
+    b.course = was ? (courseFor(ref.courses || [], b.period, d.iso) || was) : null;
+  })));
+  built.weeks.forEach(w => WEEKS.push(w));
+  DAYS.length = 0;
+  WEEKS.forEach((w, wIdx) => w.days.forEach((d, dIdx) => DAYS.push({d, w: wIdx, i: dIdx})));
+  const m = new Map();
+  for (const w of WEEKS) for (const d of w.days) for (const b of d.blocks) if (b.course) m.set(b.period, b.course);
+  ALL.length = 0;
+  [...m.keys()].sort((a, z) => a - z).forEach(p => ALL.push([p, m.get(p)]));
+  refApplied = mark;
+  refNote = refAppliedNote = built.note;
+  return true;
+}
+
+async function pullReference() {
+  const d = await call('reference', {});
+  refCache = {courses: d.courses || [], calendar: d.calendar || null, problems: d.problems || []};
+  saveSync();
+  if (applyReference(refCache)) lastPull = '';     // new days: their records come with a full pull
+}
+
 /* ---------- the docs app's names, read-only (Shared-Contracts §9.4) ---------- */
 
 let docsNote = '';            // why they are missing, when they are
@@ -474,9 +640,25 @@ function setPub(t) {
    worth one glyph; "Offline — 3 pending" has to be readable. */
 const QUIET = {'Up to date': 1, 'Saved': 1};
 
+/* What failed, in words. "Offline" only when the network did not answer: a bad
+   token, a busy server or a stale deployment used to say "Offline" too, and a
+   bad token at start-up read "Offline - no pending", as if nothing were wrong. */
+function failNote(err) {
+  const n = Object.keys(queue).length, left = n ? ' \u2014 ' + n + ' pending' : '';
+  const m = String((err && err.message) || err || 'no reason given');
+  const net = (err instanceof TypeError && /fetch|network|load failed/i.test(m)) ||
+              (typeof navigator !== 'undefined' && navigator.onLine === false);
+  if (net) return 'Offline' + left;
+  if (/bad token/i.test(m)) return 'Token refused \u2014 Shift-click Sync to reconnect' + left;
+  if (/not connected/i.test(m)) return 'Not connected' + left;
+  if (/busy/i.test(m)) return 'Server busy, trying again' + left;
+  return 'Sync failed: ' + m + (srvVersion ? ' (endpoint ' + srvVersion + ')' : '') + left;
+}
+
 function setNote(t) {
   const el = document.getElementById('sync');
   if (!el) return;
+  if (storeDead && /pending/.test(t)) t += ' \u2014 not kept: this browser refused to store them';
   // hovering Sync on any machine says which deployment that machine is using
   el.title = t + (srvVersion ? '\n' + cfg.url.slice(0, 64) + '\nendpoint ' + srvVersion : '');
   if (QUIET[t] && typeof ICONS !== 'undefined') { el.innerHTML = ICONS.cloud; el.classList.add('ico'); }
@@ -518,6 +700,12 @@ async function startSync() {
   if (!cfg.url || !cfg.token) { setNote('Not connected'); return; }
   setNote('Connecting\u2026');
   try {
+    /* First: the records of any new days can only land once the days exist. */
+    try { await pullReference(); }
+    catch (err) {
+      refNote = 'Courses / Build Calendar unavailable' + (srvVersion ? ' (endpoint ' + srvVersion + ')' : '') +
+                ': ' + err.message;
+    }
     await pullNow();
     await flush();
     try { await sendCalendar(); } catch (err) { /* it can go next time */ }
@@ -540,7 +728,7 @@ async function startSync() {
     render();
     setNote(Object.keys(queue).length ? Object.keys(queue).length + ' pending' : 'Up to date');
   } catch (err) {
-    setNote('Offline \u2014 ' + (Object.keys(queue).length || 'no') + ' pending');
+    setNote(failNote(err));
     clearTimeout(retryTimer);
     retryTimer = later(startSync, RETRY_MS);
   }
@@ -548,11 +736,16 @@ async function startSync() {
 
 function wireSync() {
   loadSync();
+  // the weeks read last time, so they are there before - or without - a connection
+  if (refCache && applyReference(refCache)) { centreOnToday(); render(); }
   const btn = document.getElementById('sync');
   if (btn) btn.onclick = e => { if (e.shiftKey || !cfg.url) connect(); else startSync(); };
   const pub = document.getElementById('publish');
   if (pub) { pub.onclick = () => publishNow(); setPub(''); }
   window.addEventListener('online', () => startSync());
+  // an open tab holding edits is not an abandoned one
+  const beat = setInterval(() => { if (Object.keys(queue).length) saveSync(); }, 60000);
+  if (beat && typeof beat.unref === 'function') beat.unref();
   setNote(cfg.url ? 'Connecting\u2026' : 'Not connected');
   startSync();
 }

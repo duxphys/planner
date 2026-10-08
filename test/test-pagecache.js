@@ -74,10 +74,10 @@ console.log('and the stale one went:', !/old/.test(store['html:P1']));
 
 console.log('');
 console.log('--- what publish() does, read from the source ---');
+// the order, and that the build is outside the lock, are run for real in test-warm.js
 const pub = gs.slice(gs.indexOf('function publish('), gs.indexOf('function readPublished'));
 console.log('clears the page copies too :', /'html:' \+ t/.test(pub));
 console.log('then builds them again     :', /warmPages\(\)/.test(pub));
-console.log('clears before it rebuilds  :', pub.indexOf('removeAll') < pub.indexOf('warmPages'));
 
 console.log('');
 console.log('--- every page request is served ready-made ---');

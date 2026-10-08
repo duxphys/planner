@@ -151,7 +151,7 @@ T.done.then(() => {
     const cell = {t: CASES[0][0], url: CASES[0][1], rel: true, priv: false};
     const ctx = new Function('PropertiesService', 'SpreadsheetApp', 'LockService', 'CacheService', 'recs', 'day', 'sink',
       ['fileId', 'linkLabel', 'shownLabel', 'redactLines', 'horizonISO', 'iso', 'parse', 'noteTextOf',
-       'studentReason', 'publish'].map(grab).join('\n') + docsSection + `
+       'studentReason', 'publish', 'publishLocked'].map(grab).join('\n') + docsSection + `
       var PUB_TAB = '_Published';
       var getCalendar = () => ({courses: {1: {tag: 'P1'}}, weeks: [{label: 'this week', mon: day,
         days: [{d: 'Mon', iso: day, cycle: 1, blocks: [{period: 1, block: 'Block 1'}]}]}]});

@@ -315,7 +315,8 @@ function paintChrome(view) {
     `<button class="cb" data-p="all" aria-pressed="${allOn}"` +
     (allOn ? ` style="background:var(--rail);color:var(--ink)"` : '') + `>All</button>` +
     `<span id="hint">${student ? '' : [typeof absentNote !== 'undefined' && absentNote,
-        typeof docsNote !== 'undefined' && docsNote].filter(Boolean).map(n => '\u26a0 ' + esc(n)).join(' ')}</span>`;
+        typeof docsNote !== 'undefined' && docsNote,
+        typeof refNote !== 'undefined' && refNote].filter(Boolean).map(n => '\u26a0 ' + esc(n)).join(' ')}</span>`;
 }
 
 /* The date row across the top. */
