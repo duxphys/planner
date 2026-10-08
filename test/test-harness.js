@@ -190,7 +190,7 @@ const CASES = [
   {
     what: 'the served page trims labels too',
     file: 'apps-script/Sync.gs',
-    from: 'var t = esc(sp.url || sp.held ? linkLabel(sp.t, !staff) : sp.t);',
+    from: 'var t = esc(sp.url || sp.held ? linkLabel(sp.t, true) : sp.t);',
     to:   'var t = esc(sp.t);',
     test: 'test-linkname.js'
   },
@@ -270,6 +270,27 @@ const CASES = [
     from: "if (!sh && String(t.getName()).trim().toLowerCase() === want) sh = t;",
     to:   "if (!sh && t.getName() === DOCS_SHORT) sh = t;",
     test: 'test-shortnames.js'
+  },
+  {
+    what: 'a wrong token says nothing about how the right one starts',
+    file: 'apps-script/Sync.gs',
+    from: "error: 'that token does not match (sent ' + q.token.length +",
+    to:   "error: (q.token.slice(0, 4) === want.slice(0, 4) ? 'it starts correctly; ' : '') + 'that token does not match (sent ' + q.token.length +",
+    test: 'test-doors.js'
+  },
+  {
+    what: 'a colleague k opens nothing more than the student JSON',
+    file: 'apps-script/Sync.gs',
+    from: '    return out(readPublished(tag));',
+    to:   "    return out(q.k ? {ok: true, staff: true, weeks: []} : readPublished(tag));",
+    test: 'test-doors.js'
+  },
+  {
+    what: 'the served page drops private lines itself',
+    file: 'apps-script/Sync.gs',
+    from: '    if (l.private) continue;                       // the page, again',
+    to:   '    void 0;',
+    test: 'test-serverpage.js'
   }
 ];
 

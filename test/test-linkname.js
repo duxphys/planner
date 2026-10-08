@@ -98,7 +98,7 @@ const stub = `var Utilities = {formatDate: () => 'Wed, Oct 7, 7:00 PM'};
 var Session = {getScriptTimeZone: () => 'UTC'};
 var HtmlService = {XFrameOptionsMode: {ALLOWALL: 'ALLOWALL'},
   createHtmlOutput: h => ({html: h, setTitle() { return this; }, setXFrameOptionsMode() { return this; }})};`;
-const P = new Function(stub + gs.slice(gs.indexOf('function esc('), gs.indexOf('/* ---------- the colleague view')) +
+const P = new Function(stub + gs.slice(gs.indexOf('function esc('), gs.indexOf('/* ---------- document titles')) +
   '; return page;')();
 const feed = (staff, lines) => ({ok: true, staff, tag: 'P1', course: {tag: 'P1', name: 'AP Phys', ink: '#0B4C81'},
   updated: '2026-10-07T23:00:00Z', links: [], weeks: [{label: 'OCT 5 – 9, 2026', mon: '2026-10-05',
@@ -106,5 +106,8 @@ const feed = (staff, lines) => ({ok: true, staff, tag: 'P1', course: {tag: 'P1',
 const pupil = P(feed(false, red)).html;
 console.log('the student page shows the cut name:', pupil.includes(TABLE[0][2] + '</a>') &&
   !pupil.includes('v.26.1 (amta)') && !/\.(pdf|docx)</.test(pupil));
+/* v47: the page has no staff view. Even a payload claiming one, and never
+   redacted, comes out cut, with the held link as words. */
 const staff = P(feed(true, src)).html;
-console.log('the staff view keeps the version   :', staff.includes(TABLE[0][1] + '</a>') && !staff.includes('.pdf<'));
+console.log('a staff payload is still cut      :', staff.includes(TABLE[0][2] + '</a>') &&
+  !staff.includes('v.26.1 (amta)') && !staff.includes('drive.google.com/file/d/key'));

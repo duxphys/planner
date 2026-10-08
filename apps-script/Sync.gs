@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v46 2026-10-07';
+var VERSION = 'v47 2026-10-08';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -34,9 +34,6 @@ function setup() {
   var p = PropertiesService.getScriptProperties();
   p.setProperty('SHEET_ID', SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!p.getProperty('TOKEN')) p.setProperty('TOKEN', Utilities.getUuid());
-  // a second, read-only secret for colleagues — revocable without disturbing
-  // the machines I write from
-  // no colleague token is minted: they are off unless deliberately turned on
   recTab();
   Logger.log('TOKEN: ' + p.getProperty('TOKEN'));
   Logger.log('SHEET_ID: ' + p.getProperty('SHEET_ID'));
@@ -101,13 +98,12 @@ function doGet(e) {
       if (!q.token) return out({ok: false, version: VERSION,
                                 error: 'add &token=… — see Planner sync > Show token'});
       if (q.token !== want) {
-        // say enough to spot a truncated paste without printing the secret
+        /* The length spots a truncated paste. Nothing about the token's own
+           characters: this door is open, and "it starts correctly" let anyone
+           check a guess four characters at a time. */
         return out({ok: false, version: VERSION,
-          error: 'that token does not match. Sent ' + q.token.length +
-                 ' characters, expected ' + want.length +
-                 (q.token.slice(0, 4) === want.slice(0, 4)
-                    ? '; it starts correctly, so it is probably cut short'
-                    : '; it does not even start the same')});
+          error: 'that token does not match (sent ' + q.token.length +
+                 ' characters; a token is ' + want.length + ')'});
       }
       return out(q.echo ? {ok: true, version: VERSION, sawParams: q} : selfCheck());
     }
@@ -130,24 +126,10 @@ function doGet(e) {
       return out({ok: false, version: VERSION,
                   error: 'which class? add ?class=p1 (p1 p2 p4 p5 p7)'});
     }
-    /* A colleague's link carries a second secret. It opens the whole year,
-       unpublished weeks included, with held links live and my notes showing.
-       Never absences: those are student names, and a teacher at another school
-       has no business with them. */
-    /* Colleague links are off. They sent district instructional content to
-       people outside the district through a URL nobody vetted, which is the
-       shape of thing the September guidance is about. Sharing curriculum is a
-       Drive share — visible to the district, revocable per person. */
-    var vt = PropertiesService.getScriptProperties().getProperty('VIEW_TOKEN');
-    if (q.k && !vt) {
-      return out({ok: false, version: VERSION, error: 'colleague links have been withdrawn'});
-    }
-    var staff = !!(q.k && q.k === vt);
-
     /* A student asking for the page gets the copy publishing left ready: no
-       spreadsheet opened, no payload parsed, no markup built. Everything else
-       — the JSON, and the staff view, which must be live — takes the long way. */
-    if (q.page && !staff) {
+       spreadsheet opened, no payload parsed, no markup built. The JSON takes
+       the long way. Colleague links (&k=) were removed in v47; a k is ignored. */
+    if (q.page) {
       /* &time=1 adds a readout at the foot of the page. Students never pass it,
          so they never see it. Appended at serve time rather than built into the
          page, or the ready-made copy would carry the moment it was built
@@ -158,13 +140,10 @@ function doGet(e) {
       return served;
     }
 
-    var data = staff ? staffFeed(tag) : readPublished(tag);
-
-    /* &page=1 is the finished page; without it, the same payload as JSON.
-       Both come from ONE redacted payload, so a held link cannot leak through
-       one and not the other. */
-    if (q.page) return page(data);
-    return out(data);
+    /* Without &page=1, the JSON. The page above is built from this same
+       redacted payload, so a held link cannot leak through one and not the
+       other. */
+    return out(readPublished(tag));
   } catch (err) {
     /* Never hand the raw exception to whoever asked. Apps Script messages name
        the document they failed on, and this door is open to students. The
@@ -670,20 +649,17 @@ function shownLabel(t, url, names, forStudents) {
   return linkLabel(t, forStudents);
 }
 
-function spanHtml(sp, staff) {
-  if (sp.priv && !staff) return '';                  // same reasoning as above
+function spanHtml(sp) {
+  if (sp.priv) return '';                            // same reasoning as above
   // redactLines() already cut a student's labels; cutting again changes nothing
-  var t = esc(sp.url || sp.held ? linkLabel(sp.t, !staff) : sp.t);
-  if (sp.url && !staff && sp.rel === false) return t;  // a held link is words only
-  if (sp.url) {
-    var cls = (staff && !sp.rel) ? ' class="held"' : '';
-    return '<a' + cls + ' href="' + esc(sp.url) + '" target="_blank" rel="noopener">' + t + '</a>';
-  }
+  var t = esc(sp.url || sp.held ? linkLabel(sp.t, true) : sp.t);
+  if (sp.url && sp.rel === false) return t;          // a held link is words only
+  if (sp.url) return '<a href="' + esc(sp.url) + '" target="_blank" rel="noopener">' + t + '</a>';
   if (sp.held) return '<span class="held">' + t + '</span>';
   return t;
 }
 
-function linesHtml(ls, staff) {
+function linesHtml(ls) {
   if (!ls || !ls.length) return '';
   var out = '';
   for (var i = 0; i < ls.length; i++) {
@@ -691,17 +667,17 @@ function linesHtml(ls, staff) {
     if (!l) { out += '<div class="gap"></div>'; continue; }
     // belt and braces: redactLines() already removed these, but a renderer
     // that trusts its input will happily print whatever a bug hands it
-    if (l.private && !staff) continue;
-    var cls = 'ln' + (l.bullet ? ' b' : '') + (staff && l.private ? ' pv' : '');
+    if (l.private) continue;                       // the page, again
+    var cls = 'ln' + (l.bullet ? ' b' : '');
     var body = '';
-    for (var j = 0; j < l.spans.length; j++) body += spanHtml(l.spans[j], staff);
+    for (var j = 0; j < l.spans.length; j++) body += spanHtml(l.spans[j]);
     out += '<p class="' + cls + '">' + body + '</p>';
   }
   return out;
 }
 
-function fieldHtml(label, ls, staff) {
-  var body = linesHtml(ls, staff);
+function fieldHtml(label, ls) {
+  var body = linesHtml(ls);
   return body ? '<div class="fld"><h4>' + label + '</h4>' + body + '</div>' : '';
 }
 
@@ -722,13 +698,7 @@ function pageParts(data) {
     ? 'Updated ' + Utilities.formatDate(new Date(data.updated),
         Session.getScriptTimeZone(), 'EEE, MMM d, h:mm a')
     : '';
-  var staff = !!data.staff;
   var body = '';
-
-  if (staff) {
-    body += '<p class="staffnote">Staff view \u2014 the whole year, unreleased ' +
-            'links and notes included. Not for students.</p>';
-  }
   if (data.links && data.links.length) {
     body += '<nav class="bar">';
     for (var i = 0; i < data.links.length; i++) {
@@ -743,17 +713,15 @@ function pageParts(data) {
     var wk = data.weeks[w], rows = '', stripe = 0;
     for (var d = 0; d < wk.days.length; d++) {
       var day = wk.days[d], z = stripe ? ' alt' : '';
-      var note = (staff && day.note) ? '<div class="daynote">' + esc(day.note) + '</div>' : '';
       if (day.off) {
         rows += '<div class="row off' + z + '"><div class="when">' + esc(day.d) + '</div>' +
-                '<div class="blk"></div><div class="note">' + esc(day.off) + note + '</div></div>';
+                '<div class="blk"></div><div class="note">' + esc(day.off) + '</div></div>';
         stripe = 1 - stripe;
         continue;
       }
       if (day.nomeet) {
         rows += '<div class="row off' + z + '"><div class="when">' + esc(day.d) + '</div>' +
-                '<div class="blk"></div><div class="note nomeet">No class today' +
-                note + '</div></div>';
+                '<div class="blk"></div><div class="note nomeet">No class today</div></div>';
         stripe = 1 - stripe;
         continue;
       }
@@ -764,10 +732,10 @@ function pageParts(data) {
       if (!meets.length) continue;
       for (var n = 0; n < meets.length; n++) {
         rows += '<div class="row' + z + '">' +
-          '<div class="when">' + (n ? '' : esc(day.d) + note) + '</div>' +
+          '<div class="when">' + (n ? '' : esc(day.d)) + '</div>' +
           '<div class="blk">' + esc(meets[n].block || '') + '</div>' +
-          '<div class="col">' + fieldHtml('Class work', meets[n].cw, staff) + '</div>' +
-          '<div class="col">' + fieldHtml('Homework', meets[n].hw, staff) + '</div>' +
+          '<div class="col">' + fieldHtml('Class work', meets[n].cw) + '</div>' +
+          '<div class="col">' + fieldHtml('Homework', meets[n].hw) + '</div>' +
           '</div>';
       }
       stripe = 1 - stripe;
@@ -932,10 +900,6 @@ var PAGE_CSS =
 '.bar{display:flex;flex-wrap:wrap;gap:2px 16px;justify-content:center;' +
 'padding:5px 10px;margin:0 0 2px;background:var(--band);border:1px solid var(--hair);' +
 'border-radius:4px}.bar a{font-size:13px;font-weight:600}' +
-'.staffnote{margin:8px 0 6px;padding:5px 10px;border-radius:3px;font-size:12px;' +
-'background:#FDF3E3;color:#8A4B00;border:1px solid #E8CFA4}' +
-'.daynote{font-weight:400;font-size:12px;color:#8A4B00;font-style:italic}' +
-'.pv{color:var(--slate);font-style:italic;padding-left:.5em;border-left:2px solid var(--hair)}' +
 '.msg{color:var(--mute);font-style:italic;padding:18px 2px}' +
 /* stacked: the date and the block share a line, then a gap before the plan.
    Must stay in step with the same block in agenda/agenda.css. */
@@ -947,60 +911,6 @@ var PAGE_CSS =
 '.col+.col{border-left:0;padding-left:0;margin-top:12px;' +
 'padding-top:11px;border-top:2px solid var(--accent)}' +
 '.fld>h4{font-size:12.5px;color:var(--slate)}}';
-
-/* ---------- the colleague view ---------- */
-
-/**
- * Everything, straight from the records rather than from what was published:
- * every week the calendar has, held links with their addresses, private lines
- * and (( )) runs left in, and the day's notes. No horizon and no redaction —
- * that is the whole point of it. Still no absences.
- */
-function staffFeed(tag) {
-  var cal = getCalendar();
-  if (!cal || !cal.weeks.length) return {ok: false, error: 'no calendar yet'};
-  var recs = readAll(recTab());
-  var info = null, per = null;
-  Object.keys(cal.courses).forEach(function (p) {
-    if (cal.courses[p].tag === tag) { info = cal.courses[p]; per = p; }
-  });
-  if (!info) return {ok: false, error: 'no class ' + tag};
-
-  var weeks = [];
-  cal.weeks.forEach(function (w) {
-    var days = [];
-    (w.days || []).forEach(function (d) {
-      var offRec = recs[d.iso + '|day|off'];
-      var reason = offRec ? noteTextOf(parse(offRec.json)) : '';
-      var noteRec = recs[d.iso + '|day|note'];
-      var note = noteRec ? noteTextOf(parse(noteRec.json)) : '';
-      if (!d.cycle || reason) {
-        days.push({d: d.d, iso: d.iso, off: reason || d.off || 'No school', note: note});
-        return;
-      }
-      var meets = [];
-      (d.blocks || []).forEach(function (b) {
-        if (String(b.period) !== String(per)) return;
-        var key = d.iso + '|P' + per + (b.asp ? 'a' : '') + '|';
-        var cw = recs[key + 'cw'] ? parse(recs[key + 'cw'].json) : null;
-        var hw = recs[key + 'hw'] ? parse(recs[key + 'hw'].json) : null;
-        if (cw || hw) meets.push({block: b.block, cw: cw, hw: hw});
-      });
-      var sits = (d.blocks || []).some(function (b) {
-        return String(b.period) === String(per);
-      });
-      if (!sits) { days.push({d: d.d, iso: d.iso, meets: [], nomeet: 1, note: note}); return; }
-      if (meets.length || note) days.push({d: d.d, iso: d.iso, meets: meets, note: note});
-    });
-    if (days.length) weeks.push({label: w.label, mon: w.mon, days: days});
-  });
-  /* Oldest first, unlike the student page. A colleague reading a year as it
-     fills in is reading a curriculum, and a curriculum reads forward — week 1
-     stays put, so a bookmark still means something next month. The page scrolls
-     itself to the current week on load, so nobody starts in August. */
-  return {ok: true, staff: true, tag: tag, course: info, today: iso(new Date()),
-          updated: nowIso(), links: [], weeks: weeks};
-}
 
 /* ---------- document titles ---------- */
 
@@ -1337,8 +1247,6 @@ function onOpen() {
     .addItem('Check health', 'checkHealth')
     .addItem('Remove dead triggers', 'removeDeadTriggers')
     .addSeparator()
-    .addItem('Withdraw colleague links', 'withdrawColleagueLinks')
-    .addSeparator()
     .addItem('Publish to students now', 'publishNow')
     .addItem('Turn ON auto-publishing', 'installPublishTrigger')
     .addItem('Turn OFF auto-publishing', 'removePublishTrigger')
@@ -1375,44 +1283,6 @@ function removePublishTrigger(quiet) {
     if (t.getHandlerFunction() === 'publishSilently') ScriptApp.deleteTrigger(t);
   });
   if (!quiet) say('Auto-publishing is OFF.');
-}
-
-/** Withdraw every colleague link. Nothing else in the system changes. */
-function withdrawColleagueLinks() {
-  var ui = mustAsk();
-  var p = PropertiesService.getScriptProperties();
-  if (!p.getProperty('VIEW_TOKEN')) { ui.alert('Colleague links are already off.'); return; }
-  if (ui.alert('Withdraw every colleague link?',
-        'Any link already shared stops working immediately.\n\n' +
-        'To share curriculum after this, share the Drive folder instead \u2014 ' +
-        'visible to the district and revocable per person.',
-        ui.ButtonSet.OK_CANCEL) !== ui.Button.OK) return;
-  p.deleteProperty('VIEW_TOKEN');
-  ui.alert('Withdrawn. Existing links now say so rather than returning any content.');
-}
-
-/** the link to hand a colleague — read-only, and revocable on its own */
-function colleagueLink() {
-  var p = PropertiesService.getScriptProperties();
-  var k = p.getProperty('VIEW_TOKEN');
-  if (!k) {
-    // deliberately off the menu: turning this back on is a decision, not a click
-    say(
-      'Colleague links are off.\n\nSharing the Drive folder is the better route: ' +
-      'it is visible to the district and revocable per person.\n\nIf you really ' +
-      'want a link back, run colleagueLink from the Apps Script editor twice \u2014 ' +
-      'once to mint a token, once to read it.');
-    p.setProperty('VIEW_TOKEN', Utilities.getUuid());
-    return;
-  }
-  say(
-    'Colleague link\n\nAdd this to the end of an agenda address:\n\n' +
-    '  &k=' + k + '\n\n' +
-    'So the whole link looks like:\n' +
-    '  .../agenda/?class=p1&k=' + k + '\n\n' +
-    'It shows the whole year, unreleased links and my notes included, and never ' +
-    'shows absences. Anyone with the link can read it, so treat it like an ' +
-    'unlisted document. "New colleague link" makes a fresh one and kills this.');
 }
 
 /**

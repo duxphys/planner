@@ -52,7 +52,7 @@ console.log('');
 console.log('--- the ones that ask a question say where to go ---');
 const ask = body('mustAsk');
 console.log('names the menu     :', /Planner sync/.test(ask));
-for (const fn of ['withdrawColleagueLinks']) {
+for (const fn of ['removeDeadTriggers']) {
   const b = body(fn);
   console.log('  ' + fn.padEnd(24), /mustAsk\(\)/.test(b) ? 'asks properly' : 'CHECK THIS');
 }

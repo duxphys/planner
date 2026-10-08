@@ -15,7 +15,7 @@ var HtmlService = {
     setXFrameOptionsMode(m){this.xf=m; captured=this; return this;}})
 };
 `;
-const slice = gs.slice(gs.indexOf('function esc('), gs.indexOf('/* ---------- the colleague view'));
+const slice = gs.slice(gs.indexOf('function esc('), gs.indexOf('/* ---------- document titles'));
 eval(stub + slice);
 
 const line = (spans, o) => Object.assign({bullet: false, private: false}, o, {spans});
@@ -53,10 +53,10 @@ console.log('no absences anywhere  :', !/AB:|Attend/.test(out));
 
 const st = page(feed({staff: true})).html;
 console.log('');
-console.log('--- the same page on a colleague link ---');
-console.log('banner shown          :', /Staff view/.test(st));
-console.log('private line shown    :', st.includes('copies made'));
-console.log('day note shown        :', st.includes('Faculty Mtg'));
+console.log('--- a payload that says staff is still a student page (v47) ---');
+console.log('no banner             :', !/Staff view/.test(st));
+console.log('no private line       :', !st.includes('copies made'));
+console.log('no day note           :', !st.includes('Faculty Mtg'));
 
 console.log('');
 console.log('--- escaping ---');
@@ -104,7 +104,7 @@ console.log('');
 console.log('--- one redaction, two doors ---');
 console.log('page() never redacts itself:',
   !/\.rel\b/.test(slice.slice(slice.indexOf('function page('))) );
-console.log('it renders whatever readPublished/staffFeed already stripped');
+console.log('it renders whatever readPublished already stripped');
 
 /* There used to be TWO copies of this CSS — one in the repo's agenda/ folder,
    one inside Sync.gs — and this compared them, because a fix applied to only
@@ -137,9 +137,7 @@ console.log('  page keeps the order it is given:',
   shown.join() === '2026-08-31,2026-09-07,2026-09-14', shown.join(' '));
 
 /* The order itself is decided where the sheet is read, which needs a
-   SpreadsheetApp this shim does not have — so these two stay source checks, and
-   say so rather than pretending to be behaviour. */
+   SpreadsheetApp this shim does not have — so this stays a source check, and
+   says so rather than pretending to be behaviour. */
 const pub = gs.slice(gs.indexOf('function readPublished'), gs.indexOf('function title'));
-const sf = gs.slice(gs.indexOf('function staffFeed'), gs.indexOf('function readPublished'));
 console.log('  students get newest first (source):', /a\.mon < b\.mon \? 1 : -1/.test(pub));
-console.log('  staff feed does not reverse (source):', !/weeks\.reverse/.test(sf));

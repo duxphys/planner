@@ -34,7 +34,7 @@ var readPublished = tag => { reads++; return {
       hw: null}]}
   ]}]}; };
 `;
-eval(stub + gs.slice(gs.indexOf('function esc('), gs.indexOf('/* ---------- the colleague view')));
+eval(stub + gs.slice(gs.indexOf('function esc('), gs.indexOf('/* ---------- document titles')));
 
 console.log('--- cold, then warm ---');
 store = {}; reads = 0;
@@ -80,19 +80,14 @@ console.log('then builds them again     :', /warmPages\(\)/.test(pub));
 console.log('clears before it rebuilds  :', pub.indexOf('removeAll') < pub.indexOf('warmPages'));
 
 console.log('');
-console.log('--- the staff view is never cached ---');
+console.log('--- every page request is served ready-made ---');
 const doGet = gs.slice(gs.indexOf('function doGet'), gs.indexOf('function out('));
-/* The dispatch grew into a block, so a regex for the one-line form stopped
-   matching. Check the two branches do different things, which is the point:
-   a student page may come from cache, a staff page never. */
-const cut = doGet.indexOf('if (q.page && !staff)');
-const staffPath = doGet.indexOf('if (q.page) return page(data)');
-console.log('only a non-staff page is served ready-made:',
-  cut > -1 && staffPath > cut &&
-  doGet.slice(cut, staffPath).indexOf('studentPage') > -1 &&
-  doGet.slice(staffPath).indexOf('studentPage') === -1);
-const sp = gs.slice(gs.indexOf('function studentPage'), gs.indexOf('function warmPages'));
-console.log('the cached path never calls staffFeed     :', !/staffFeed/.test(sp));
+/* v47 removed the colleague view, the one page that was built live. Now a page
+   request has one path, through studentPage, and the rest of doGet builds none. */
+const cut = doGet.indexOf('if (q.page) {');
+const rest = doGet.slice(cut, doGet.indexOf('} catch'));
+console.log('the page path goes through studentPage:', cut > -1 && /studentPage\(/.test(rest));
+console.log('and nothing else in doGet builds a page:', !/[^.]page\(data\)/.test(rest));
 
 console.log('');
 console.log('--- the timing readout ---');
