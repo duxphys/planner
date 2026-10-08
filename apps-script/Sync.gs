@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v44 2026-10-07';
+var VERSION = 'v45 2026-10-07';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -1045,8 +1045,8 @@ var DOCS_FCOLS = ['file id', 'num', 'part', 'name', 'ver', 'role', 'tag', 'mod']
 function docNames() {
   var id = PropertiesService.getScriptProperties().getProperty('DOCS_ID');
   if (!id) return {ok: false, error: 'DOCS_ID is not set in Script Properties'};
-  var sh;
-  try { sh = SpreadsheetApp.openById(id).getSheetByName(DOCS_FILES); }
+  var ss, sh;
+  try { ss = SpreadsheetApp.openById(id); sh = ss.getSheetByName(DOCS_FILES); }
   catch (err) { return {ok: false, error: 'the docs workbook would not open: ' + String(err && err.message || err)}; }
   if (!sh) return {ok: false, error: 'the docs workbook has no ' + DOCS_FILES + ' tab'};
   var rows = sh.getDataRange().getDisplayValues();
@@ -1054,6 +1054,8 @@ function docNames() {
   var col = {};
   var missing = DOCS_FCOLS.filter(function (w) { col[w] = head.indexOf(w); return col[w] < 0; });
   if (missing.length) return {ok: false, error: 'the docs workbook has no ' + missing.join(', ') + ' column'};
+  var forms = shortForms(ss);
+  if (typeof forms === 'string') return {ok: false, error: forms};
   var get = function (r, w) { return String(r[col[w]] == null ? '' : r[col[w]]).trim(); };
   var yr = function (r) { return parseInt(get(r, 'ver').slice(0, 2), 10) || 0; };
 
@@ -1066,12 +1068,41 @@ function docNames() {
     var r = rows[i], fid = get(r, 'file id');
     if (/\//.test(fid)) fid = fileId(fid);
     if (!fid || yr(r) !== year || !get(r, 'num') || !get(r, 'name')) continue;
-    var f = {head: get(r, 'num') + (get(r, 'part') ? '.' + get(r, 'part') : ''), name: get(r, 'name'),
+    var f = {head: get(r, 'num') + (get(r, 'part') ? '.' + get(r, 'part') : ''), name: shorten(get(r, 'name'), forms),
              ver: get(r, 'ver'), tag: get(r, 'tag'), role: get(r, 'role'), mod: !!get(r, 'mod')};
     files[fid] = {s: f.head + ' - ' + f.name, f: docName(f)};
     n++;
   }
   return {ok: true, year: String(year), count: n, files: files};
+}
+
+/* Short forms for the start of a name, typed once on the docs workbook's
+   "Short names" tab (long | short): "Practice - Springs" reads "Prac - Springs".
+   Only a whole leading segment, followed by " - ", is replaced. No tab means
+   no short forms; a tab without both columns is an error. The homework
+   checker's Code.gs has the same two functions, word for word;
+   claude/docs-test/test-short-names.js holds them together. */
+var DOCS_SHORT = 'Short names';
+function shortForms(ss) {
+  var sh = ss.getSheetByName(DOCS_SHORT);
+  if (!sh) return [];
+  var rows = sh.getDataRange().getDisplayValues();
+  var head = (rows[0] || []).map(function (h) { return String(h).trim().toLowerCase(); });
+  var a = head.indexOf('long'), b = head.indexOf('short');
+  if (a < 0 || b < 0) return 'the ' + DOCS_SHORT + ' tab needs a long and a short column';
+  return rows.slice(1).map(function (r) { return [String(r[a] || '').trim(), String(r[b] || '').trim()]; })
+    .filter(function (p) { return p[0] && p[1]; })
+    .sort(function (x, y) { return y[0].length - x[0].length; });    // longest first
+}
+function shorten(name, forms) {
+  name = String(name || '');
+  for (var i = 0; i < forms.length; i++) {
+    var lead = forms[i][0] + ' - ';
+    if (name.slice(0, lead.length).toLowerCase() === lead.toLowerCase()) {
+      return forms[i][1] + name.slice(forms[i][0].length);
+    }
+  }
+  return name;
 }
 
 /* The docs app's genName() rule, without the file type: tags in the order
