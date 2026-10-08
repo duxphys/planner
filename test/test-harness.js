@@ -501,6 +501,13 @@ const CASES = [
     from: "if (!again) {\n      console.warn(action + ': a page came back",
     to:   "if (false) {\n      console.warn(action + ': a page came back",
     test: "test-tabs.js"
+  },
+  {
+    what: "the workbook is opened once a request",
+    file: "apps-script/Sync.gs",
+    from: "  if (BOOK) return BOOK;\n",
+    to:   "\n",
+    test: "test-warm.js"
   }
 ];
 

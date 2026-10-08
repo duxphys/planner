@@ -42,3 +42,16 @@ console.log('outside the lock                   :', events.indexOf('build') > ev
 events.length = 0;
 const b = make({busy: true});
 console.log('a busy lock builds nothing         :', b.ok === false && !events.some(e => /^build/.test(e)));
+
+console.log('');
+console.log('--- the workbook is opened once a request ---');
+{
+  let opens = 0;
+  const run = new Function('count', ['book', 'tab', 'tabIfAny'].map(grab).join('\n') + `
+    var BOOK = null;
+    var PropertiesService = {getScriptProperties: () => ({getProperty: () => 'ID'})};
+    var SpreadsheetApp = {openById: () => { count(); return {getSheetByName: n => ({name: n}), insertSheet: n => ({name: n, hideSheet() {}})}; }};
+    tab('_Records'); tab('_Calendar'); tabIfAny('Courses'); tabIfAny('Build Calendar'); book();`);
+  run(() => opens++);
+  console.log('five lookups, one open             :', opens === 1, '(' + opens + ')');
+}
