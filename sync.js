@@ -185,10 +185,24 @@ async function call(action, body, again) {
     headers: {'Content-Type': 'text/plain;charset=utf-8'},
     body: JSON.stringify(Object.assign({action, token: cfg.token, device: me()}, body))
   });
+  /* Google now and then answers with a page of its own - an error, a sign-in,
+     a "file not found" from the redirect - instead of the script's data. Every
+     action is safe to repeat, so it is asked once more; a second page is
+     named: which action, the page's title, the HTTP status. A network failure
+     while reading is left as one, so it still reads "Offline". */
+  const text = typeof res.text === 'function' ? await res.text() : null;
   let data;
-  // a Google sign-in or error page instead of data, named as one
-  try { data = await res.json(); }
-  catch (e) { throw new Error('the endpoint sent a page, not data - is the deployment current?'); }
+  try { data = text === null ? await res.json() : JSON.parse(text); }
+  catch (e) {
+    if (e instanceof TypeError) throw e;
+    if (!again) {
+      console.warn(action + ': a page came back instead of data; asking again');
+      return call(action, body, true);
+    }
+    const title = /<title>([^<]*)<\/title>/i.exec(text || '');
+    throw new Error(action + ': the endpoint sent a page' + (title ? ' titled "' + title[1].trim() + '"' : '') +
+      (res.status && res.status !== 200 ? ' (HTTP ' + res.status + ')' : '') + ' instead of data, twice');
+  }
   if (data && data.version) srvVersion = data.version;
   if (!data.ok) {
     if (LOST_POST.test(data.error || '') && !again) {

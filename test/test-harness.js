@@ -365,8 +365,8 @@ const CASES = [
   {
     what: "a web page in reply is named",
     file: "sync.js",
-    from: "catch (e) { throw new Error('the endpoint sent a page, not data - is the deployment current?'); }",
-    to:   "catch (e) { throw e; }",
+    from: "(title ? ' titled \"' + title[1].trim() + '\"' : '')",
+    to:   "''",
     test: "test-tabs.js"
   },
   {
@@ -494,6 +494,20 @@ const CASES = [
     from: "typeof refNote !== 'undefined' && refNote].filter(Boolean)",
     to:   "false].filter(Boolean)",
     test: "test-reference.js"
+  },
+  {
+    what: "a stray page is asked about once more",
+    file: "sync.js",
+    from: "if (!again) {\n      console.warn(action + ': a page came back",
+    to:   "if (false) {\n      console.warn(action + ': a page came back",
+    test: "test-tabs.js"
+  },
+  {
+    what: "the workbook is opened once a request",
+    file: "apps-script/Sync.gs",
+    from: "  if (BOOK) return BOOK;\n",
+    to:   "\n",
+    test: "test-warm.js"
   }
 ];
 

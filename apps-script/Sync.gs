@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v49 2026-10-08';
+var VERSION = 'v50 2026-10-08';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -403,10 +403,16 @@ function absences() {
 
 var CAL_TAB = '_Calendar', PUB_TAB = '_Published';
 
+/* Opened once per request: every openById is a round trip, and a publish
+   used to make five (records, calendar, published, links, courses). Apps
+   Script starts each request with fresh globals, so this never outlives the
+   request it was opened for. */
+var BOOK = null;
 function book() {
+  if (BOOK) return BOOK;
   var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!id) throw new Error('run setup() first — no SHEET_ID stored');
-  return SpreadsheetApp.openById(id);
+  return (BOOK = SpreadsheetApp.openById(id));
 }
 
 function tab(name) {
