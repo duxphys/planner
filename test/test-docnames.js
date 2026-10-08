@@ -28,8 +28,10 @@ const ROWS = [HEAD,
   row({'file id': ID.old, num: '01.C.4', name: 'Acceleration Problems', ver: '25.3'}),   // last year
   row({'file id': ID.guide, num: 'RD.1', name: 'Course Guide', ver: '26.1'}),
   row({'file id': '', num: '01.C.6', name: 'Not made yet', ver: '26.1'})];
-const docsBook = rows => ({getSheetByName: n => n === '_Files' ? {getDataRange: () =>
-  ({getDisplayValues: () => rows.map(r => r.slice())})} : null});
+const docsBook = rows => {
+  const files = {getName: () => '_Files', getDataRange: () => ({getDisplayValues: () => rows.map(r => r.slice())})};
+  return {getSheetByName: n => n === '_Files' ? files : null, getSheets: () => [files]};
+};
 const server = (props, books) => new Function('PropertiesService', 'SpreadsheetApp',
   grab('fileId') + docsSection + grab('linkLabel') + grab('shownLabel') +
   '; return {docNames, shownLabel};')(
@@ -124,6 +126,14 @@ console.log('a failed read is said             :', /Docs names unavailable.*woul
 console.log('and the last list is kept         :', a().textContent === T.F[T.ID.acc].f);
 loadSync();
 console.log('a cold start has the last list    :', Object.keys(docsByFile).length === 3);
+// read, but with something to say: no Short names tab
+T.setAnswer({ok: true, year: '26', count: 3, files: T.F, note: 'no Short names tab in the docs workbook, so names are not shortened'});
+await startSync();
+console.log('a note with the list is shown     :', /\u26a0 no Short names tab in the docs workbook/.test(document.getElementById('hint').textContent) &&
+  Object.keys(docsByFile).length === 3);
+T.setAnswer({ok: true, year: '26', count: 3, files: T.F});
+await startSync();
+console.log('and goes once there is nothing to say:', !/Short names/.test(document.getElementById('hint').textContent));
 })().catch(e => console.log('the page side threw               :', false, e.message));
 `);
 
@@ -161,7 +171,7 @@ T.done.then(() => {
   console.log('it publishes                      :', good.res.ok === true && good.res.docs === 3, good.res.error || '');
   console.log('students get number and name      :', good.sent.includes('"t":"' + F[ID.acc].s + '"') &&
     !good.sent.includes('01.C.4'));
-  console.log('Check health is told              :', /^3 files from 2026, at /.test(props.DOCS_STATE || ''));
+  console.log('Check health is told              :', /^3 files from 2026; no Short names tab in the docs workbook, so names are not shortened, at /.test(props.DOCS_STATE || ''));
   const bad = run({});
   console.log('an unreadable workbook still publishes:', bad.res.ok === true &&
     bad.sent.includes('"t":"01.C.4 - UAPM: Acceleration Problems"'));

@@ -413,6 +413,7 @@ let docsNote = '';            // why they are missing, when they are
 async function pullDocs() {
   const d = await call('docs', {});
   docsByFile = d.files || {};
+  docsNote = d.note || '';            // read, but something about it is worth saying
   saveSync();
 }
 
