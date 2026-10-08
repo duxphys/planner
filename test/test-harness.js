@@ -235,6 +235,20 @@ const CASES = [
     from: "try { docsNote = ''; await pullDocs(); }",
     to:   "try { docsNote = ''; docsByFile = {}; await pullDocs(); }",
     test: 'test-docnames.js'
+  },
+  {
+    what: 'docs names take their short forms',
+    file: 'apps-script/Sync.gs',
+    from: "name: shorten(get(r, 'name'), forms),",
+    to:   "name: get(r, 'name'),",
+    test: 'test-shortnames.js'
+  },
+  {
+    what: 'a malformed Short names tab is said',
+    file: 'apps-script/Sync.gs',
+    from: "  if (typeof forms === 'string') return {ok: false, error: forms};\n",
+    to:   "  if (typeof forms === 'string') forms = [];\n",
+    test: 'test-shortnames.js'
   }
 ];
 
