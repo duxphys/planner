@@ -84,6 +84,7 @@ function loadSync() {
       if (id !== TAB) adopted.push(id);
     });
     titles = s.titles || {};
+    refCache = s.ref || null;
     docsByFile = s.docs || {};          // last copy read, so a cold start has names
     /* lastPull is deliberately NOT restored. The model is rebuilt from data.js
        on every load, so the client starts each session knowing nothing — an
@@ -121,7 +122,7 @@ function saveSync() {
     for (const k of Object.keys(base)) {
       if (!(k in merged) || queue[k] !== undefined || String(base[k]) > String(merged[k])) merged[k] = base[k];
     }
-    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base: merged, queue: all, tabs, titles, docs: docsByFile}));
+    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base: merged, queue: all, tabs, titles, docs: docsByFile, ref: refCache}));
     adopted = [];
     storeDead = false;
   } catch (e) { storeDead = true; }
@@ -467,6 +468,111 @@ async function pullAbsences() {
   return n;
 }
 
+/* ---------- reference-in: Courses and Build Calendar ---------- */
+
+/* data.js stays the record of the weeks it has. From the workbook come course
+   names, sections and colours, by date - so P7's lab can stop on 22 Jan and
+   P6's start on 25 Jan - and the school days after data.js's last week, from
+   Build Calendar. The last copy read is kept on this machine, so the new weeks
+   are there offline. A copy with a problem in it is not used at all. */
+const BASE_WEEKS = WEEKS.length;
+const BASE_COURSES = WEEKS.map(w => w.days.map(d => d.blocks.map(b => b.course)));
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+let refNote = '', refCache = null, refApplied = '', refAppliedNote = '';
+
+const pad2 = n => String(n).padStart(2, '0');
+const dateOf = iso => { const p = iso.split('-'); return new Date(+p[0], p[1] - 1, +p[2], 12); };
+const isoAdd = (iso, n) => { const t = dateOf(iso); t.setDate(t.getDate() + n);
+  return t.getFullYear() + '-' + pad2(t.getMonth() + 1) + '-' + pad2(t.getDate()); };
+/* The waterfall: day 1 runs P1-P5, and each day starts five periods on. ASP
+   meets whoever had Block 5. */
+const rotation = k => [0, 1, 2, 3, 4].map(i => ((k - 1) * 5 + i) % 7 + 1);
+
+function courseFor(courses, period, iso) {
+  const c = courses.find(c => c.period === period && (!c.from || iso >= c.from) && (!c.until || iso <= c.until));
+  return c ? {sym: c.sym, tag: 'P' + period, name: c.name, sec: c.sec, fill: c.fill, ink: c.ink} : null;
+}
+
+function referenceWeeks(ref, problems) {
+  const cal = ref.calendar, courses = ref.courses || [];
+  if (!cal) return {weeks: [], note: ''};
+  const days0 = WEEKS[BASE_WEEKS - 1].days, last0 = days0[days0.length - 1].iso;
+  let lastCycle = 0;
+  for (const w of WEEKS.slice(0, BASE_WEEKS)) for (const d of w.days) if (d.cycle) lastCycle = d.cycle;
+  let mon = isoAdd(last0, 1);
+  while (dateOf(mon).getDay() !== 1) mon = isoAdd(mon, 1);       // the Monday after data.js's last week
+  const first = cal.first || mon;
+  if (first <= last0) problems.push('Build Calendar: the first school day, ' + first +
+    ', is already in the planner, which runs to ' + last0 + ' - set it to a day after that');
+  else if (cal.last < first) problems.push('Build Calendar: the last day to build is before the first school day');
+  else if (first > mon && !cal.cycle) problems.push('Build Calendar: Its cycle day is needed when the first school day is after ' + mon);
+  if (problems.length) return {weeks: [], note: ''};
+  let cycle = cal.cycle || lastCycle % 7 + 1, gap = 0;
+  const ex = {};
+  for (const e of cal.exceptions || []) (ex[e.iso] = ex[e.iso] || []).push(e);
+  const weeks = [];
+  for (; mon <= cal.last; mon = isoAdd(mon, 7)) {
+    const days = [];
+    for (let i = 0; i < 5; i++) {
+      const iso = isoAdd(mon, i), t = dateOf(iso);
+      const d = WEEKDAY[t.getDay()] + ' ' + MONTHS[t.getMonth()].charAt(0) + MONTHS[t.getMonth()].slice(1).toLowerCase() + ' ' + t.getDate();
+      const es = ex[iso] || [], off = es.find(e => e.kind === 'off');
+      const note = es.filter(e => e.kind !== 'off').map(e => e.label || (e.kind === 'half' ? '½ Day' : ''))
+        .filter(Boolean).join(' · ');
+      const why = iso < first || iso > cal.last ? 'Not in the Build Calendar' : off ? (off.label || 'No school') : '';
+      if (iso < first) gap++;
+      const rot = why ? [] : rotation(cycle);
+      days.push({d, iso, cycle: why ? null : cycle, off: why, note,
+        blocks: rot.concat(rot.length ? [rot[4]] : []).map((per, bi) => ({
+          block: B[bi][0], t0: B[bi][1], t1: B[bi][2], asp: !!B[bi][3],
+          period: per, course: courseFor(courses, per, iso), cw: null, hw: null})),
+        noteLines: asLines(note), offLines: asLines(why)});
+      if (!why) cycle = cycle % 7 + 1;
+    }
+    /* A week the calendar closes altogether - a vacation - is left out, as
+       data.js leaves out the week after Christmas. */
+    if (days.every(x => x.off && x.off !== 'Not in the Build Calendar')) continue;
+    const fri = isoAdd(mon, 4), a = dateOf(mon), z = dateOf(fri);
+    weeks.push({label: MONTHS[a.getMonth()] + ' ' + a.getDate() + ' – ' + MONTHS[z.getMonth()] + ' ' +
+                       z.getDate() + ', ' + z.getFullYear(), mon, days});
+  }
+  return {weeks, note: gap ? gap + ' school day(s) before the Build Calendar’s first are blank' : ''};
+}
+
+/** True when the weeks changed: their records then need a full pull. */
+function applyReference(ref) {
+  const mark = stamp(ref);
+  if (mark === refApplied) { refNote = refAppliedNote; return false; }
+  if (typeof editingKey === 'function' && editingKey()) return false;    // never under an open cell
+  const problems = (ref.problems || []).slice();
+  const built = problems.length ? null : referenceWeeks(ref, problems);
+  if (problems.length) { refNote = 'Courses / Build Calendar not used — ' + problems.join('; '); return false; }
+  WEEKS.length = BASE_WEEKS;
+  /* data.js's own days: which periods meet stays data.js's; only a course's
+     name, section and colours come from the tab, where it has a row. */
+  WEEKS.forEach((w, wi) => w.days.forEach((d, di) => d.blocks.forEach((b, bi) => {
+    const was = BASE_COURSES[wi][di][bi];
+    b.course = was ? (courseFor(ref.courses || [], b.period, d.iso) || was) : null;
+  })));
+  built.weeks.forEach(w => WEEKS.push(w));
+  DAYS.length = 0;
+  WEEKS.forEach((w, wIdx) => w.days.forEach((d, dIdx) => DAYS.push({d, w: wIdx, i: dIdx})));
+  const m = new Map();
+  for (const w of WEEKS) for (const d of w.days) for (const b of d.blocks) if (b.course) m.set(b.period, b.course);
+  ALL.length = 0;
+  [...m.keys()].sort((a, z) => a - z).forEach(p => ALL.push([p, m.get(p)]));
+  refApplied = mark;
+  refNote = refAppliedNote = built.note;
+  return true;
+}
+
+async function pullReference() {
+  const d = await call('reference', {});
+  refCache = {courses: d.courses || [], calendar: d.calendar || null, problems: d.problems || []};
+  saveSync();
+  if (applyReference(refCache)) lastPull = '';     // new days: their records come with a full pull
+}
+
 /* ---------- the docs app's names, read-only (Shared-Contracts §9.4) ---------- */
 
 let docsNote = '';            // why they are missing, when they are
@@ -594,6 +700,12 @@ async function startSync() {
   if (!cfg.url || !cfg.token) { setNote('Not connected'); return; }
   setNote('Connecting\u2026');
   try {
+    /* First: the records of any new days can only land once the days exist. */
+    try { await pullReference(); }
+    catch (err) {
+      refNote = 'Courses / Build Calendar unavailable' + (srvVersion ? ' (endpoint ' + srvVersion + ')' : '') +
+                ': ' + err.message;
+    }
     await pullNow();
     await flush();
     try { await sendCalendar(); } catch (err) { /* it can go next time */ }
@@ -624,6 +736,8 @@ async function startSync() {
 
 function wireSync() {
   loadSync();
+  // the weeks read last time, so they are there before - or without - a connection
+  if (refCache && applyReference(refCache)) { centreOnToday(); render(); }
   const btn = document.getElementById('sync');
   if (btn) btn.onclick = e => { if (e.shiftKey || !cfg.url) connect(); else startSync(); };
   const pub = document.getElementById('publish');

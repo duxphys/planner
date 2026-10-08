@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v48 2026-10-08';
+var VERSION = 'v49 2026-10-08';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -58,6 +58,7 @@ function doPost(e) {
     }
     if (req.action === 'title') return out(title(req));
     if (req.action === 'docs') return out(docNames());
+    if (req.action === 'reference') return out(reference());
     if (req.action === 'absences') return out(absences());
     if (req.action === 'calendar') return out(putCalendar(req));
     if (req.action === 'publish') return out(publish());
@@ -953,6 +954,111 @@ function fileId(u) {
   return m ? m[1] : '';
 }
 
+/* ---------- reference-in: the Courses and Build Calendar tabs ---------- */
+
+/* Read-only, from this workbook. Courses is read by its header row, Build
+   Calendar by its labels, so a row added above either moves nothing. A value
+   that cannot be read is a problem, named with its row; the app then keeps
+   what it had rather than half-applying. */
+var REF_COURSES = 'Courses', REF_CAL = 'Build Calendar';
+var REF_COLS = ['period', 'symbol', 'course', 'section', 'fill', 'text', 'from', 'until'];
+
+function reference() {
+  var problems = [];
+  var cs = tabIfAny(REF_COURSES);
+  if (!cs) return {ok: false, error: 'the planner workbook has no ' + REF_COURSES + ' tab'};
+  var rows = cs.getDataRange().getValues(), h = -1, col = {};
+  for (var i = 0; i < rows.length && h < 0; i++) {
+    var low = rows[i].map(function (v) { return String(v).trim().toLowerCase(); });
+    if (low.indexOf('period') < 0 || low.indexOf('course') < 0) continue;
+    h = i;
+    low.forEach(function (v, j) { if (v && col[v] === undefined) col[v] = j; });
+  }
+  if (h < 0) return {ok: false, error: 'the ' + REF_COURSES + ' tab has no header row with Period and Course'};
+  var missing = REF_COLS.filter(function (w) { return col[w] === undefined; });
+  if (missing.length) return {ok: false, error: 'the ' + REF_COURSES + ' tab has no ' + missing.join(', ') + ' column'};
+
+  var courses = [];
+  // the table ends at the first row with no period; notes below it are not rows
+  for (i = h + 1; i < rows.length && String(rows[i][col.period]).trim(); i++) {
+    var r = rows[i], at = REF_COURSES + ' row ' + (i + 1);
+    var get = function (w) { return String(r[col[w]] == null ? '' : r[col[w]]).trim(); };
+    var c = {period: Number(get('period')), sym: get('symbol'), name: get('course'), sec: get('section'),
+             fill: refHex(get('fill')), ink: refHex(get('text')),
+             from: refIso(r[col.from]), until: refIso(r[col.until])};
+    if (!/^[1-7]$/.test(get('period'))) problems.push(at + ': the period "' + get('period') + '" is not 1-7');
+    if (!c.name) problems.push(at + ': no course name');
+    if (!c.fill || !c.ink) problems.push(at + ': Fill and Text are colours like C4DBEF');
+    if (c.from === null || c.until === null) problems.push(at + ': From and Until are dates like 1/25/2027, or blank');
+    courses.push(c);
+  }
+  if (!courses.length) problems.push('the ' + REF_COURSES + ' tab lists no courses');
+
+  return {ok: true, courses: courses, calendar: refCalendar(problems), problems: problems};
+}
+
+/* Build Calendar: three labelled values, then a table of exceptions. Blank
+   altogether is not a problem - it is the state before the calendar is out. */
+function refCalendar(problems) {
+  var sh = tabIfAny(REF_CAL);
+  if (!sh) return null;
+  var rows = sh.getDataRange().getValues();
+  var val = function (label) {
+    for (var i = 0; i < rows.length; i++)
+      for (var j = 0; j < rows[i].length - 1; j++)
+        if (String(rows[i][j]).trim().toLowerCase() === label) return rows[i][j + 1];
+    problems.push('the ' + REF_CAL + ' tab has no "' + label + '" label');
+    return '';
+  };
+  var cal = {first: refIso(val('first school day')), last: refIso(val('last day to build')),
+             cycle: String(val('its cycle day')).trim(), exceptions: []};
+  if (cal.first === null) problems.push(REF_CAL + ': First school day is not a date like 1/25/2027');
+  if (cal.last === null) problems.push(REF_CAL + ': Last day to build is not a date like 6/17/2027');
+  if (cal.cycle && !/^[1-7]$/.test(cal.cycle)) problems.push(REF_CAL + ': Its cycle day is 1-7');
+  cal.cycle = cal.cycle ? Number(cal.cycle) : null;
+
+  var h = -1, dc = -1, tc = -1, lc = -1;
+  for (var i = 0; i < rows.length && h < 0; i++) {
+    var low = rows[i].map(function (v) { return String(v).trim().toLowerCase(); });
+    if (low.indexOf('date') >= 0 && low.indexOf('type') >= 0) {
+      h = i; dc = low.indexOf('date'); tc = low.indexOf('type'); lc = tc + 1;
+    }
+  }
+  if (h < 0) problems.push('the ' + REF_CAL + ' tab has no Date / Type header for its exceptions');
+  for (i = h + 1; h >= 0 && i < rows.length; i++) {
+    var d = rows[i][dc], type = String(rows[i][tc] || '').trim().toLowerCase();
+    var text = String(d == null ? '' : d).trim();
+    // the greyed examples, and the note under the table, are not exceptions
+    if (!text || /^e\.g\./i.test(text) || !type) continue;
+    var at = REF_CAL + ' row ' + (i + 1), iso = refIso(d);
+    var kind = /^no[\s-]*school$/.test(type) ? 'off' : /^half[\s-]*day$/.test(type) ? 'half' : type === 'note' ? 'note' : '';
+    if (!iso) problems.push(at + ': "' + text + '" is not a date like 2/15/2027');
+    else if (!kind) problems.push(at + ': the type is No school, Half day or Note, not "' + type + '"');
+    else cal.exceptions.push({iso: iso, kind: kind, label: String(rows[i][lc] || '').trim()});
+  }
+  if (!cal.first && !cal.last && !cal.exceptions.length) return null;
+  if (!cal.last) problems.push(REF_CAL + ': Last day to build is empty');
+  return cal;
+}
+
+/* '' for blank, null for something that is not a date, else yyyy-mm-dd. A
+   date cell arrives as a Date; typed text as 1/25/2027, 1/25/27 or 2027-01-25. */
+function refIso(v) {
+  if (v === '' || v == null) return '';
+  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return isNaN(v.getTime()) ? null : v.getFullYear() + '-' + p2(v.getMonth() + 1) + '-' + p2(v.getDate());
+  }
+  var s = String(v).trim(), m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (m) return (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + p2(+m[1]) + '-' + p2(+m[2]);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : (s ? null : '');
+}
+function refHex(v) {
+  v = String(v).trim().replace(/^#/, '');
+  if (/^\d+$/.test(v)) while (v.length < 6) v = '0' + v;     // 033333 typed in a cell is a number
+  return /^[0-9A-Fa-f]{6}$/.test(v) ? '#' + v.toUpperCase() : '';
+}
+
 /* ---------- the docs app's names (Shared-Contracts §9.4) ---------- */
 
 /* Read straight from the docs workbook, read-only. Its id is the Script
@@ -1341,6 +1447,20 @@ function checkHealth() {
   if (!tags.length) lines.push('  no calendar yet, so no classes to serve');
   else if (ready < tags.length) lines.push('  Publish rebuilds them all.');
 
+  lines.push('');
+  lines.push('COURSES AND BUILD CALENDAR');
+  try {
+    var rf = reference();
+    if (!rf.ok) lines.push('  NOT READ: ' + rf.error);
+    else {
+      lines.push('  ' + rf.courses.length + ' course row(s): ' + rf.courses.map(function (c) {
+        return 'P' + c.period + ' ' + c.name + (c.from ? ' from ' + c.from : '') + (c.until ? ' until ' + c.until : '');
+      }).join(', '));
+      lines.push('  ' + (rf.calendar ? 'Build Calendar: ' + (rf.calendar.first || 'continuing') + ' to ' +
+        rf.calendar.last + ', ' + rf.calendar.exceptions.length + ' exception(s)' : 'Build Calendar: not filled in yet'));
+      rf.problems.forEach(function (p) { lines.push('  PROBLEM: ' + p); });
+    }
+  } catch (err) { lines.push('  NOT READ: ' + err); }
   lines.push('');
   lines.push('DOCS APP NAMES');
   var dp = PropertiesService.getScriptProperties();
