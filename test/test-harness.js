@@ -291,6 +291,104 @@ const CASES = [
     from: '    if (l.private) continue;                       // the page, again',
     to:   '    void 0;',
     test: 'test-serverpage.js'
+  },
+  {
+    what: "two tabs keep their own queues",
+    file: "sync.js",
+    from: "tabs[TAB] = {at: Date.now(), queue, base: b};",
+    to:   "s.tabs = {}; tabs[TAB] = {at: Date.now(), queue, base: b}; for (const id of Object.keys(tabs)) if (id !== TAB) delete tabs[id];",
+    test: "test-tabs.js"
+  },
+  {
+    what: "each tab names itself",
+    file: "sync.js",
+    from: "const me = () => cfg.device + '.' + TAB.slice(-4);",
+    to:   "const me = () => cfg.device;",
+    test: "test-tabs.js"
+  },
+  {
+    what: "another open tab's edits are left to it",
+    file: "sync.js",
+    from: "if (id !== TAB && Date.now() - (t.at || 0) < TAB_ORPHAN) return;   // an open tab's",
+    to:   "void 0;",
+    test: "test-tabs.js"
+  },
+  {
+    what: "an abandoned tab's edits are taken up",
+    file: "sync.js",
+    from: "if (id !== TAB && Date.now() - (t.at || 0) < TAB_ORPHAN) return;   // an open tab's",
+    to:   "if (id !== TAB) return;",
+    test: "test-tabs.js"
+  },
+  {
+    what: "a taken-up edit keeps its version",
+    file: "sync.js",
+    from: "if (t.base && t.base[k] !== undefined) base[k] = t.base[k];",
+    to:   "void 0;",
+    test: "test-tabs.js"
+  },
+  {
+    what: "a store from v53 is taken up",
+    file: "sync.js",
+    from: "const tabs = s.tabs || (s.queue && Object.keys(s.queue).length ? {legacy: {at: 0, queue: s.queue, base: s.base}} : {});",
+    to:   "const tabs = s.tabs || {};",
+    test: "test-tabs.js"
+  },
+  {
+    what: "identical content is a landed write",
+    file: "sync.js",
+    from: "if (sameLines(queue[c.key], c.lines)) { delete queue[c.key]; continue; }",
+    to:   "void 0;",
+    test: "test-tabs.js"
+  },
+  {
+    what: "Offline only for the network",
+    file: "sync.js",
+    from: "if (net) return 'Offline' + left;",
+    to:   "return 'Offline' + left;",
+    test: "test-tabs.js"
+  },
+  {
+    what: "a bad token is named",
+    file: "sync.js",
+    from: "if (/bad token/i.test(m)) return",
+    to:   "if (false) return",
+    test: "test-tabs.js"
+  },
+  {
+    what: "start-up failures say what failed",
+    file: "sync.js",
+    from: "    setNote(failNote(err));\n    clearTimeout(retryTimer);\n    retryTimer = later(startSync, RETRY_MS);",
+    to:   "    setNote('Offline \\u2014 ' + (Object.keys(queue).length || 'no') + ' pending');\n    clearTimeout(retryTimer);\n    retryTimer = later(startSync, RETRY_MS);",
+    test: "test-tabs.js"
+  },
+  {
+    what: "a web page in reply is named",
+    file: "sync.js",
+    from: "catch (e) { throw new Error('the endpoint sent a page, not data - is the deployment current?'); }",
+    to:   "catch (e) { throw e; }",
+    test: "test-tabs.js"
+  },
+  {
+    what: "refused storage is said",
+    file: "sync.js",
+    from: "} catch (e) { storeDead = true; }",
+    to:   "} catch (e) { }",
+    test: "test-tabs.js"
+  },
+  {
+    what: "the pages are built outside the publish lock",
+    file: "apps-script/Sync.gs",
+    from: "    SpreadsheetApp.flush();\n    return {ok: true, now: stamp, through: limit",
+    to:   "    warmPages();\n    SpreadsheetApp.flush();\n    return {ok: true, now: stamp, through: limit",
+    test: "test-warm.js"
+  },
+  {
+    what: "the pages are still built after publishing",
+    file: "apps-script/Sync.gs",
+    from: "    try { warmPages(); } catch (err) { console.error('could not warm the pages: ' + err); }\n  }\n  return r;",
+    to:   "  }\n  return r;",
+    test: "test-warm.js"
   }
 ];
 

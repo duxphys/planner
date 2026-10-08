@@ -41,6 +41,27 @@ let absent = {};               // keyed 'P1|9/14', holding lines of codes and na
 let absentNote = '';           // why they are missing, when they are
 const ABSENT_CODES = ['AB', 'T', 'TE', 'TX'];
 let syncing = false, retryTimer = null;
+let storeDead = false;         // the browser refused the last save to its storage
+
+/* Each tab keeps its own unsent edits under its own id, so two tabs on one
+   machine cannot erase each other's queue, and each sends its own device name,
+   so a clash between them is a real conflict - both kept - not a conflict
+   "with myself" resent over the top. The id lives in sessionStorage, which a
+   reload keeps. A tab's entry untouched for TAB_ORPHAN ms belongs to a tab that
+   has gone; the next tab to open takes its edits up, each still carrying the
+   version it was made against. */
+const TAB_ORPHAN = 5 * 60000;
+const TAB = (function () {
+  let t = null;
+  try { t = sessionStorage.getItem('planner.tab'); } catch (e) {}
+  if (!t) {
+    t = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    try { sessionStorage.setItem('planner.tab', t); } catch (e) {}
+  }
+  return t;
+})();
+let adopted = [];              // other tabs' entries taken up, dropped on the next save
+const me = () => cfg.device + '.' + TAB.slice(-4);
 let chain = 0;                 // consecutive follow-up sends, so a refusal cannot spin
 let srvVersion = '';           // which deployment answered last, named in any failure
 
@@ -49,7 +70,19 @@ function loadSync() {
     const s = JSON.parse(localStorage.getItem(SYNC_KEY) || '{}');
     cfg = Object.assign(cfg, s.cfg || {});
     base = s.base || {};
-    queue = s.queue || {};
+    queue = {};
+    /* Mine, and any tab's that was abandoned. A store from before v54 has one
+       shared queue and no tabs: it is taken up as an abandoned tab's. */
+    const tabs = s.tabs || (s.queue && Object.keys(s.queue).length ? {legacy: {at: 0, queue: s.queue, base: s.base}} : {});
+    Object.keys(tabs).sort((a, b) => (tabs[a].at || 0) - (tabs[b].at || 0)).forEach(id => {
+      const t = tabs[id];
+      if (id !== TAB && Date.now() - (t.at || 0) < TAB_ORPHAN) return;   // an open tab's
+      for (const k of Object.keys(t.queue || {})) {
+        queue[k] = t.queue[k];
+        if (t.base && t.base[k] !== undefined) base[k] = t.base[k];
+      }
+      if (id !== TAB) adopted.push(id);
+    });
     titles = s.titles || {};
     docsByFile = s.docs || {};          // last copy read, so a cold start has names
     /* lastPull is deliberately NOT restored. The model is rebuilt from data.js
@@ -66,10 +99,32 @@ function loadSync() {
   }
 }
 
+/* Read, merge, write: what another tab saved is kept. Each tab's queue is its
+   own entry, with the version each edit was made against. The shared base is a
+   cold-start cache, newest wins, except for a key this tab holds an edit for.
+   `queue` holds every tab's edits together, for anything reading the old
+   shape. A refusal is remembered and said, never swallowed. */
 function saveSync() {
   try {
-    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base, queue, titles, docs: docsByFile}));
-  } catch (e) { /* storage unavailable: the queue lives only for this session */ }
+    const s = JSON.parse(localStorage.getItem(SYNC_KEY) || '{}');
+    const tabs = s.tabs || {};
+    for (const id of adopted) delete tabs[id];
+    const mine = Object.keys(queue);
+    if (mine.length) {
+      const b = {};
+      for (const k of mine) b[k] = base[k];
+      tabs[TAB] = {at: Date.now(), queue, base: b};
+    } else delete tabs[TAB];
+    const all = {};
+    for (const id of Object.keys(tabs)) Object.assign(all, tabs[id].queue);
+    const merged = Object.assign({}, s.base || {});
+    for (const k of Object.keys(base)) {
+      if (!(k in merged) || queue[k] !== undefined || String(base[k]) > String(merged[k])) merged[k] = base[k];
+    }
+    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base: merged, queue: all, tabs, titles, docs: docsByFile}));
+    adopted = [];
+    storeDead = false;
+  } catch (e) { storeDead = true; }
 }
 
 /* ---------- record keys ---------- */
@@ -127,9 +182,12 @@ async function call(action, body, again) {
   const res = await fetch(cfg.url, {
     method: 'POST',
     headers: {'Content-Type': 'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({action, token: cfg.token, device: cfg.device}, body))
+    body: JSON.stringify(Object.assign({action, token: cfg.token, device: me()}, body))
   });
-  const data = await res.json();
+  let data;
+  // a Google sign-in or error page instead of data, named as one
+  try { data = await res.json(); }
+  catch (e) { throw new Error('the endpoint sent a page, not data - is the deployment current?'); }
   if (data && data.version) srvVersion = data.version;
   if (!data.ok) {
     if (LOST_POST.test(data.error || '') && !again) {
@@ -217,12 +275,14 @@ async function flush() {
     }
     for (const c of data.conflicts || []) {
       base[c.key] = c.updatedAt;
+      /* The server already holds exactly this: it landed, whoever sent it. */
+      if (sameLines(queue[c.key], c.lines)) { delete queue[c.key]; continue; }
       /* A conflict with MYSELF is not a conflict. On a poor connection a push
          can reach the server and have its reply lost on the way back — the
          record is saved, but this machine still thinks it failed, so it retries
          with a base the server has already moved past. The rejection then names
          this very device. Take the write as landed and stop asking. */
-      if (c.device && c.device === cfg.device) {
+      if (c.device && c.device === me()) {
         if (sameLines(queue[c.key], c.lines)) {
           delete queue[c.key];               // it was already saved: nothing to do
         } else {
@@ -237,7 +297,7 @@ async function flush() {
     setNote(Object.keys(queue).length ? Object.keys(queue).length + ' pending' : 'Saved');
   } catch (err) {
     saveSync();                                 // don't rely on the caller having saved
-    setNote('Offline \u2014 ' + Object.keys(queue).length + ' pending');
+    setNote(failNote(err));
     clearTimeout(retryTimer);
     retryTimer = later(flush, RETRY_MS);   // the queue is on disk; it can wait
   } finally {
@@ -474,9 +534,25 @@ function setPub(t) {
    worth one glyph; "Offline — 3 pending" has to be readable. */
 const QUIET = {'Up to date': 1, 'Saved': 1};
 
+/* What failed, in words. "Offline" only when the network did not answer: a bad
+   token, a busy server or a stale deployment used to say "Offline" too, and a
+   bad token at start-up read "Offline - no pending", as if nothing were wrong. */
+function failNote(err) {
+  const n = Object.keys(queue).length, left = n ? ' \u2014 ' + n + ' pending' : '';
+  const m = String((err && err.message) || err || 'no reason given');
+  const net = (err instanceof TypeError && /fetch|network|load failed/i.test(m)) ||
+              (typeof navigator !== 'undefined' && navigator.onLine === false);
+  if (net) return 'Offline' + left;
+  if (/bad token/i.test(m)) return 'Token refused \u2014 Shift-click Sync to reconnect' + left;
+  if (/not connected/i.test(m)) return 'Not connected' + left;
+  if (/busy/i.test(m)) return 'Server busy, trying again' + left;
+  return 'Sync failed: ' + m + (srvVersion ? ' (endpoint ' + srvVersion + ')' : '') + left;
+}
+
 function setNote(t) {
   const el = document.getElementById('sync');
   if (!el) return;
+  if (storeDead && /pending/.test(t)) t += ' \u2014 not kept: this browser refused to store them';
   // hovering Sync on any machine says which deployment that machine is using
   el.title = t + (srvVersion ? '\n' + cfg.url.slice(0, 64) + '\nendpoint ' + srvVersion : '');
   if (QUIET[t] && typeof ICONS !== 'undefined') { el.innerHTML = ICONS.cloud; el.classList.add('ico'); }
@@ -540,7 +616,7 @@ async function startSync() {
     render();
     setNote(Object.keys(queue).length ? Object.keys(queue).length + ' pending' : 'Up to date');
   } catch (err) {
-    setNote('Offline \u2014 ' + (Object.keys(queue).length || 'no') + ' pending');
+    setNote(failNote(err));
     clearTimeout(retryTimer);
     retryTimer = later(startSync, RETRY_MS);
   }
@@ -553,6 +629,9 @@ function wireSync() {
   const pub = document.getElementById('publish');
   if (pub) { pub.onclick = () => publishNow(); setPub(''); }
   window.addEventListener('online', () => startSync());
+  // an open tab holding edits is not an abandoned one
+  const beat = setInterval(() => { if (Object.keys(queue).length) saveSync(); }, 60000);
+  if (beat && typeof beat.unref === 'function') beat.unref();
   setNote(cfg.url ? 'Connecting\u2026' : 'Not connected');
   startSync();
 }

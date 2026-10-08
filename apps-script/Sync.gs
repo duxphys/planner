@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v47 2026-10-08';
+var VERSION = 'v48 2026-10-08';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -467,6 +467,20 @@ function getCalendar() {
  * so no single cell grows past what a cell can hold.
  */
 function publish() {
+  var r = publishLocked();
+  /* Then build the pages again straight away. This runs unattended on the
+     fifteen-minute trigger, so the work lands here rather than on the first
+     student to open a page. It runs after the lock is let go: five pages take
+     seconds, and a save arriving meanwhile used to wait 20 s behind them and
+     be refused. A page built from a publish that has since been overtaken is
+     thrown away by that publish's own cache clear. */
+  if (r.ok) {
+    try { warmPages(); } catch (err) { console.error('could not warm the pages: ' + err); }
+  }
+  return r;
+}
+
+function publishLocked() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return {ok: false, error: 'busy, try again'};
   try {
@@ -549,10 +563,6 @@ function publish() {
       });
       CacheService.getScriptCache().removeAll(keys);
     } catch (err) { /* the cache expiring on its own is an acceptable fallback */ }
-    /* Then build them again straight away. This runs unattended on the
-       fifteen-minute trigger, so the work lands here rather than on the first
-       student to open a page. */
-    try { warmPages(); } catch (err) { console.error('could not warm the pages: ' + err); }
     SpreadsheetApp.flush();
     return {ok: true, now: stamp, through: limit, classes: counts, docs: dn.ok ? dn.count : dn.error};
   } finally {
