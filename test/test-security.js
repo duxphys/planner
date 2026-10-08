@@ -60,7 +60,7 @@ console.log('\n--- what needs the token ---');
 const doPost = gs.slice(gs.indexOf('function doPost'), gs.indexOf('function doGet'));
 const guarded = /req.token !== want/.test(doPost);
 console.log('every write action :', guarded ? 'token checked before any action' : 'UNGUARDED');
-for (const a of ['pull', 'push', 'title', 'absences', 'calendar', 'publish']) {
+for (const a of ['pull', 'push', 'title', 'docs', 'absences', 'calendar', 'publish']) {
   const line = doPost.indexOf("'" + a + "'");
   console.log('  ' + a.padEnd(9), line > doPost.indexOf('bad token') ? 'behind the token' : 'BEFORE THE CHECK');
 }

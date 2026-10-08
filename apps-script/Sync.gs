@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v43 2026-10-07';
+var VERSION = 'v44 2026-10-07';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -60,6 +60,7 @@ function doPost(e) {
       return out(done);
     }
     if (req.action === 'title') return out(title(req));
+    if (req.action === 'docs') return out(docNames());
     if (req.action === 'absences') return out(absences());
     if (req.action === 'calendar') return out(putCalendar(req));
     if (req.action === 'publish') return out(publish());
@@ -214,7 +215,7 @@ function selfCheck() {
  *
  * Pure, so the tests can run it directly rather than trusting a copy.
  */
-function redactLines(lines) {
+function redactLines(lines, names) {
   if (!lines || !lines.length) return null;
   var out = [];
   for (var i = 0; i < lines.length; i++) {
@@ -226,8 +227,8 @@ function redactLines(lines) {
       var sp = l.spans[j];
       if (sp.priv) continue;                       // '(( ))' run
       if (!sp.t) continue;
-      // a link's label, cut at the version: the student copy of linkLabel()
-      if (sp.url) sp = {t: linkLabel(sp.t, true), url: sp.url, rel: sp.rel};
+      // a link's label: the docs app's name for students, else cut at the version
+      if (sp.url) sp = {t: shownLabel(sp.t, sp.url, names, true), url: sp.url, rel: sp.rel};
       // held: the words, marked so the page can show something is coming, and
       // no address anywhere — the flag says "a link exists", never which one
       spans.push(sp.url
@@ -498,6 +499,11 @@ function publish() {
     var limit = horizonISO(new Date());
     var stamp = nowIso();
     var rows = [], counts = {};
+    /* The docs app's names, read once. Unreadable, publishing goes on with
+       the stored names, and says why in Check health. */
+    var dn = docNames(), names = dn.ok ? dn.files : {};
+    PropertiesService.getScriptProperties().setProperty('DOCS_STATE',
+      (dn.ok ? dn.count + ' files from 20' + dn.year : 'NOT READ: ' + dn.error) + ', at ' + stamp);
 
     cal.weeks.forEach(function (w) {
       var days = (w.days || []).filter(function (d) { return d.iso <= limit; });
@@ -520,8 +526,8 @@ function publish() {
           (d.blocks || []).forEach(function (b) {
             if (String(b.period) !== String(per)) return;
             var key = d.iso + '|P' + per + (b.asp ? 'a' : '') + '|';
-            var cw = recs[key + 'cw'] ? redactLines(parse(recs[key + 'cw'].json)) : null;
-            var hw = recs[key + 'hw'] ? redactLines(parse(recs[key + 'hw'].json)) : null;
+            var cw = recs[key + 'cw'] ? redactLines(parse(recs[key + 'cw'].json), names) : null;
+            var hw = recs[key + 'hw'] ? redactLines(parse(recs[key + 'hw'].json), names) : null;
             if (cw || hw) meets.push({block: b.block, cw: cw, hw: hw});
           });
           /* An empty list is ambiguous: on a seven-day rotation this class does
@@ -569,7 +575,7 @@ function publish() {
        student to open a page. */
     try { warmPages(); } catch (err) { console.error('could not warm the pages: ' + err); }
     SpreadsheetApp.flush();
-    return {ok: true, now: stamp, through: limit, classes: counts};
+    return {ok: true, now: stamp, through: limit, classes: counts, docs: dn.ok ? dn.count : dn.error};
   } finally {
     lock.releaseLock();
   }
@@ -649,6 +655,19 @@ function linkLabel(t, forStudents) {
   if (forStudents) cut = cut.replace(/\s+v\.\d+(?:\.\d+)*(?=[\s.]|$)[\s\S]*$/i, '');
   cut = cut.replace(/\.(pdf|docx?|pptx?|xlsx?|odt|rtf|txt|csv|png|jpe?g|gif|heic|mp3|m4a|mp4|mov|zip)$/i, '');
   return cut.trim() ? cut : s;          // never trim a label down to nothing
+}
+
+/* A link to a file the docs app keeps shows the docs app's current name for
+   it, so a renumber reaches the planner with nothing retyped. Only a label
+   that came from a file's name follows, one that still starts with a number
+   ("01.C.5 - ..."); one typed over by hand stays as typed. names: Drive id ->
+   {s: students', f: mine}, from Sync.gs docNames(). The same function is in
+   render.js and Sync.gs; test-docnames.js holds the two to one table. */
+function shownLabel(t, url, names, forStudents) {
+  var m = String(url || '').match(/\/d\/([a-zA-Z0-9_-]{20,})|[?&]id=([a-zA-Z0-9_-]{20,})/);
+  var d = m && names ? names[m[1] || m[2]] : null;
+  if (d && /^[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)+ - /.test(String(t))) return forStudents ? d.s : d.f;
+  return linkLabel(t, forStudents);
 }
 
 function spanHtml(sp, staff) {
@@ -1014,6 +1033,64 @@ function fileId(u) {
   return m ? m[1] : '';
 }
 
+/* ---------- the docs app's names (Shared-Contracts §9.4) ---------- */
+
+/* Read straight from the docs workbook, read-only. Its id is the Script
+   Property DOCS_ID and never written here: this file is in a public repo.
+   Columns are found by header; a missing one is an error, never an empty
+   list. Of mod, only whether it is blank is read: it can name a student. */
+var DOCS_FILES = '_Files';
+var DOCS_FCOLS = ['file id', 'num', 'part', 'name', 'ver', 'role', 'tag', 'mod'];
+
+function docNames() {
+  var id = PropertiesService.getScriptProperties().getProperty('DOCS_ID');
+  if (!id) return {ok: false, error: 'DOCS_ID is not set in Script Properties'};
+  var sh;
+  try { sh = SpreadsheetApp.openById(id).getSheetByName(DOCS_FILES); }
+  catch (err) { return {ok: false, error: 'the docs workbook would not open: ' + String(err && err.message || err)}; }
+  if (!sh) return {ok: false, error: 'the docs workbook has no ' + DOCS_FILES + ' tab'};
+  var rows = sh.getDataRange().getDisplayValues();
+  var head = (rows[0] || []).map(function (h) { return String(h).trim().toLowerCase(); });
+  var col = {};
+  var missing = DOCS_FCOLS.filter(function (w) { col[w] = head.indexOf(w); return col[w] < 0; });
+  if (missing.length) return {ok: false, error: 'the docs workbook has no ' + missing.join(', ') + ' column'};
+  var get = function (r, w) { return String(r[col[w]] == null ? '' : r[col[w]]).trim(); };
+  var yr = function (r) { return parseInt(get(r, 'ver').slice(0, 2), 10) || 0; };
+
+  // this year: the newest a file was made in. An earlier year's file keeps the
+  // name it was handed out under, which its row may no longer match.
+  var year = 0, i;
+  for (i = 1; i < rows.length; i++) if (get(rows[i], 'file id') && yr(rows[i]) > year) year = yr(rows[i]);
+  var files = {}, n = 0;
+  for (i = 1; i < rows.length; i++) {
+    var r = rows[i], fid = get(r, 'file id');
+    if (/\//.test(fid)) fid = fileId(fid);
+    if (!fid || yr(r) !== year || !get(r, 'num') || !get(r, 'name')) continue;
+    var f = {head: get(r, 'num') + (get(r, 'part') ? '.' + get(r, 'part') : ''), name: get(r, 'name'),
+             ver: get(r, 'ver'), tag: get(r, 'tag'), role: get(r, 'role'), mod: !!get(r, 'mod')};
+    files[fid] = {s: f.head + ' - ' + f.name, f: docName(f)};
+    n++;
+  }
+  return {ok: true, year: String(year), count: n, files: files};
+}
+
+/* The docs app's genName() rule, without the file type: tags in the order
+   given, (mod), then roles with key and grades last. Docs.gs owns the rule;
+   change this copy in the same change. claude/docs-test/test-planner-names.js
+   runs both on one table. */
+function docName(f) {
+  var words = function (v) {
+    return String(v == null ? '' : v).toLowerCase().split(/[\s,]+/)
+      .filter(function (w, i, a) { return w && a.indexOf(w) === i; });
+  };
+  var last = {key: 1, grades: 1}, roles = words(f.role), tail = words(f.tag);
+  if (f.mod) tail.push('mod');
+  tail = tail.concat(roles.filter(function (w) { return !last[w]; }),
+                     roles.filter(function (w) { return last[w]; }));
+  return f.head + ' - ' + f.name + (f.ver ? ' v.' + f.ver : '') +
+         (tail.length ? ' (' + tail.join(') (') + ')' : '');
+}
+
 /* ---------- store ---------- */
 
 function recTab() {
@@ -1349,6 +1426,11 @@ function checkHealth() {
   if (!tags.length) lines.push('  no calendar yet, so no classes to serve');
   else if (ready < tags.length) lines.push('  Publish rebuilds them all.');
 
+  lines.push('');
+  lines.push('DOCS APP NAMES');
+  var dp = PropertiesService.getScriptProperties();
+  lines.push('  ' + (dp.getProperty('DOCS_ID') ? 'DOCS_ID stored' : 'DOCS_ID MISSING \u2014 add it in Project Settings \u203a Script Properties'));
+  lines.push('  last publish: ' + (dp.getProperty('DOCS_STATE') || 'not yet'));
   lines.push('');
   lines.push('BACKUP');
   var bp = PropertiesService.getScriptProperties();

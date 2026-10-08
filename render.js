@@ -172,6 +172,8 @@ function roster(view) {
 
 /* ---------- lines -> html ---------- */
 
+let docsByFile = {};   // Drive id -> {s, f}, from the docs app; sync.js fills it
+
 /* A pasted Drive link labels itself with the file's whole name:
      01.C.5 - UAPM: Quantitative Acceleration Problems v.26.1 (amta).pdf
    I see it without the file type; students see it cut at the version:
@@ -187,6 +189,19 @@ function linkLabel(t, forStudents) {
   return cut.trim() ? cut : s;          // never trim a label down to nothing
 }
 
+/* A link to a file the docs app keeps shows the docs app's current name for
+   it, so a renumber reaches the planner with nothing retyped. Only a label
+   that came from a file's name follows, one that still starts with a number
+   ("01.C.5 - ..."); one typed over by hand stays as typed. names: Drive id ->
+   {s: students', f: mine}, from Sync.gs docNames(). The same function is in
+   render.js and Sync.gs; test-docnames.js holds the two to one table. */
+function shownLabel(t, url, names, forStudents) {
+  var m = String(url || '').match(/\/d\/([a-zA-Z0-9_-]{20,})|[?&]id=([a-zA-Z0-9_-]{20,})/);
+  var d = m && names ? names[m[1] || m[2]] : null;
+  if (d && /^[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)+ - /.test(String(t))) return forStudents ? d.s : d.f;
+  return linkLabel(t, forStudents);
+}
+
 
 function lineHTML(l) {
   if (!l) return '<div class="ln"><br></div>';
@@ -197,7 +212,7 @@ function lineHTML(l) {
     if (s.priv && student) continue;                 // (( )) never reaches students
     if (s.priv && !inPriv) { inner += '<span class="pvs">'; inPriv = true; }
     else if (!s.priv && inPriv) { inner += '</span>'; inPriv = false; }
-    const t = esc(s.url ? linkLabel(s.t, student) : s.t) || '&nbsp;';
+    const t = esc(s.url ? shownLabel(s.t, s.url, docsByFile, student) : s.t) || '&nbsp;';
     if (!s.url) { inner += t; continue; }
     if (s.rel) inner += `<a class="l" href="${s.url}" data-u="${s.url}" data-r="1">${t}</a>`;
     // preview only: a held link reads as plain text, with a faint rule so it can
@@ -299,8 +314,8 @@ function paintChrome(view) {
       (hidePrep ? '' : ` style="background:var(--rail);color:var(--slate)"`) + `>Prep</button>`) +
     `<button class="cb" data-p="all" aria-pressed="${allOn}"` +
     (allOn ? ` style="background:var(--rail);color:var(--ink)"` : '') + `>All</button>` +
-    `<span id="hint">${(typeof absentNote !== 'undefined' && absentNote && !student)
-        ? '\u26a0 ' + esc(absentNote) : ''}</span>`;
+    `<span id="hint">${student ? '' : [typeof absentNote !== 'undefined' && absentNote,
+        typeof docsNote !== 'undefined' && docsNote].filter(Boolean).map(n => '\u26a0 ' + esc(n)).join(' ')}</span>`;
 }
 
 /* The date row across the top. */
