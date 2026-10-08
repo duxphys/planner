@@ -13,7 +13,7 @@ const grab = name => {
     else if (gs[k] === '}' && --d === 0) return gs.slice(i, k + 1);
   }
 };
-eval(grab('redactLines') + grab('linkLabel') + grab('horizonISO') + grab('iso'));
+eval(grab('redactLines') + grab('linkLabel') + grab('shownLabel') + grab('horizonISO') + grab('iso'));
 
 const span = (t, o) => Object.assign({t, url: null, rel: false, priv: false}, o);
 const line = (spans, o) => Object.assign({bullet: false, private: false}, o, {spans});

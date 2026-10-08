@@ -51,6 +51,7 @@ function loadSync() {
     base = s.base || {};
     queue = s.queue || {};
     titles = s.titles || {};
+    docsByFile = s.docs || {};          // last copy read, so a cold start has names
     /* lastPull is deliberately NOT restored. The model is rebuilt from data.js
        on every load, so the client starts each session knowing nothing — an
        incremental pull would ask for "changes since my last write" and get back
@@ -67,7 +68,7 @@ function loadSync() {
 
 function saveSync() {
   try {
-    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base, queue, titles}));
+    localStorage.setItem(SYNC_KEY, JSON.stringify({cfg, base, queue, titles, docs: docsByFile}));
   } catch (e) { /* storage unavailable: the queue lives only for this session */ }
 }
 
@@ -406,6 +407,15 @@ async function pullAbsences() {
   return n;
 }
 
+/* ---------- the docs app's names, read-only (Shared-Contracts §9.4) ---------- */
+
+let docsNote = '';            // why they are missing, when they are
+async function pullDocs() {
+  const d = await call('docs', {});
+  docsByFile = d.files || {};
+  saveSync();
+}
+
 /* ---------- document titles ---------- */
 
 /** Ask the endpoint what a Drive link is called. Empty means "no idea" — the
@@ -518,6 +528,13 @@ async function startSync() {
       absentNote = 'Absences unavailable' + (srvVersion ? ' (endpoint ' + srvVersion + ')' : '') +
                    ': ' + err.message;
       console.warn(absentNote);
+    }
+    // the last copy stays on screen: a stale name beats the file's old one
+    try { docsNote = ''; await pullDocs(); }
+    catch (err) {
+      docsNote = 'Docs names unavailable' + (srvVersion ? ' (endpoint ' + srvVersion + ')' : '') +
+                 ': ' + err.message;
+      console.warn(docsNote);
     }
     render();
     setNote(Object.keys(queue).length ? Object.keys(queue).length + ' pending' : 'Up to date');

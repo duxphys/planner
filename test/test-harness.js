@@ -176,14 +176,14 @@ const CASES = [
   {
     what: 'students are sent link labels cut at the version',
     file: 'apps-script/Sync.gs',
-    from: 'if (sp.url) sp = {t: linkLabel(sp.t, true), url: sp.url, rel: sp.rel};',
+    from: 'if (sp.url) sp = {t: shownLabel(sp.t, sp.url, names, true), url: sp.url, rel: sp.rel};',
     to:   'void 0;',
     test: 'test-linkname.js'
   },
   {
     what: 'the planner shows link labels trimmed',
     file: 'render.js',
-    from: "esc(s.url ? linkLabel(s.t, student) : s.t)",
+    from: "esc(s.url ? shownLabel(s.t, s.url, docsByFile, student) : s.t)",
     to:   "esc(s.t)",
     test: 'test-linkname.js'
   },
@@ -193,6 +193,48 @@ const CASES = [
     from: 'var t = esc(sp.url || sp.held ? linkLabel(sp.t, !staff) : sp.t);',
     to:   'var t = esc(sp.t);',
     test: 'test-linkname.js'
+  },
+  {
+    what: 'publishing sends students the docs app\'s names',
+    file: 'apps-script/Sync.gs',
+    from: "redactLines(parse(recs[key + 'cw'].json), names)",
+    to:   "redactLines(parse(recs[key + 'cw'].json))",
+    test: 'test-docnames.js'
+  },
+  {
+    what: 'the planner shows the docs app\'s names',
+    file: 'render.js',
+    from: 'if (d && /^[0-9A-Za-z]+(?:\\.[0-9A-Za-z]+)+ - /.test(String(t))) return forStudents ? d.s : d.f;',
+    to:   'void 0;',
+    test: 'test-docnames.js'
+  },
+  {
+    what: 'a label typed over by hand is kept',
+    file: 'apps-script/Sync.gs',
+    from: 'if (d && /^[0-9A-Za-z]+(?:\\.[0-9A-Za-z]+)+ - /.test(String(t)))',
+    to:   'if (d)',
+    test: 'test-docnames.js'
+  },
+  {
+    what: 'only this year\'s files are named from the docs app',
+    file: 'apps-script/Sync.gs',
+    from: 'if (!fid || yr(r) !== year ||',
+    to:   'if (!fid ||',
+    test: 'test-docnames.js'
+  },
+  {
+    what: 'a missing docs column is an error, not an empty list',
+    file: 'apps-script/Sync.gs',
+    from: "if (missing.length) return {ok: false, error: 'the docs workbook has no '",
+    to:   "if (false) return {ok: false, error: 'the docs workbook has no '",
+    test: 'test-docnames.js'
+  },
+  {
+    what: 'a failed docs read keeps the last list',
+    file: 'sync.js',
+    from: "try { docsNote = ''; await pullDocs(); }",
+    to:   "try { docsNote = ''; docsByFile = {}; await pullDocs(); }",
+    test: 'test-docnames.js'
   }
 ];
 
