@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v50 2026-10-08';
+var VERSION = 'v51 2026-10-13';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -1074,6 +1074,10 @@ function refHex(v) {
 var DOCS_FILES = '_Files';
 var DOCS_FCOLS = ['file id', 'num', 'part', 'name', 'ver', 'role', 'tag', 'mod'];
 
+/* The year a version starts with: 26 from 1 July 2026 to 30 June 2027. The
+   homework checker's Code.gs has the same function. */
+function schoolYear(d) { d = d || new Date(); return d.getFullYear() % 100 - (d.getMonth() < 6 ? 1 : 0); }
+
 function docNames() {
   var id = PropertiesService.getScriptProperties().getProperty('DOCS_ID');
   if (!id) return {ok: false, error: 'DOCS_ID is not set in Script Properties'};
@@ -1093,10 +1097,11 @@ function docNames() {
   var get = function (r, w) { return String(r[col[w]] == null ? '' : r[col[w]]).trim(); };
   var yr = function (r) { return parseInt(get(r, 'ver').slice(0, 2), 10) || 0; };
 
-  // this year: the newest a file was made in. An earlier year's file keeps the
-  // name it was handed out under, which its row may no longer match.
-  var year = 0, i;
-  for (i = 1; i < rows.length; i++) if (get(rows[i], 'file id') && yr(rows[i]) > year) year = yr(rows[i]);
+  // this year: the newest a file was made in that has begun. An earlier year's
+  // file keeps the name it was handed out under, which its row may no longer
+  // match; a copy made ahead for next year (27.1, 13 Oct) is not this year's yet.
+  var year = 0, now = schoolYear(), i;
+  for (i = 1; i < rows.length; i++) if (get(rows[i], 'file id') && yr(rows[i]) > year && yr(rows[i]) <= now) year = yr(rows[i]);
   var files = {}, n = 0;
   for (i = 1; i < rows.length; i++) {
     var r = rows[i], fid = get(r, 'file id');

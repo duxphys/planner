@@ -32,14 +32,16 @@ const docsBook = rows => {
   const files = {getName: () => '_Files', getDataRange: () => ({getDisplayValues: () => rows.map(r => r.slice())})};
   return {getSheetByName: n => n === '_Files' ? files : null, getSheets: () => [files]};
 };
-const server = (props, books) => new Function('PropertiesService', 'SpreadsheetApp',
+// now: a fixed clock for the school-year checks; otherwise the real one
+const clock = now => now ? class extends Date { constructor(...a) { if (a.length) super(...a); else super(now); } } : Date;
+const server = (props, books, now) => new Function('PropertiesService', 'SpreadsheetApp', 'Date',
   grab('fileId') + docsSection + grab('linkLabel') + grab('shownLabel') +
-  '; return {docNames, shownLabel};')(
+  '; return {docNames, shownLabel, schoolYear: typeof schoolYear === "function" ? schoolYear : null};')(
   {getScriptProperties: () => ({getProperty: k => props[k] || null})},
-  {openById: id => { if (!books[id]) throw new Error('Requested entity was not found.'); return books[id]; }});
+  {openById: id => { if (!books[id]) throw new Error('Requested entity was not found.'); return books[id]; }}, clock(now));
 
 console.log('--- reading the docs workbook ---');
-const S = server({DOCS_ID: 'DOCS'}, {DOCS: docsBook(ROWS)});
+const S = server({DOCS_ID: 'DOCS'}, {DOCS: docsBook(ROWS)}, new Date('2026-10-13T12:00:00'));
 const r = S.docNames();
 const F = r.files || {};
 console.log('it reads                          :', r.ok === true && r.year === '26' && r.count === 3, r.ok ? '' : r.error);
@@ -52,6 +54,17 @@ console.log('a part, tags, mod, key last       :',
 console.log('an id stored as a link is found   :', !!F[ID.spr]);
 console.log('the mod text never leaves         :', !JSON.stringify(r).includes('larger print'));
 console.log('last year\'s file is left alone    :', !F[ID.old]);
+/* 13 Oct: a 27.1 copy made ahead for next year made 27 "this year" and every
+   26.x file last year's, so no link followed the docs app. */
+const NEXT = '1Nx7YbM2qWv4LtZ8wC3pRj6HdF5sE9aGk';
+const ahead = ROWS.concat([row({'file id': NEXT, num: '01.C.5', name: 'UAPM: Quantitative Acceleration Problems', ver: '27.1'})]);
+const on = when => server({DOCS_ID: 'DOCS'}, {DOCS: docsBook(ahead)}, new Date(when)).docNames();
+const oct = on('2026-10-13T12:00:00'), june = on('2027-06-30T12:00:00'), july = on('2027-07-01T12:00:00');
+console.log('a 27.1 copy changes nothing yet   :', oct.year === '26' && oct.count === 3 && !oct.files[NEXT] && !!oct.files[ID.acc], '(' + oct.year + ', ' + oct.count + ')');
+console.log('still 26 on 30 June 2027          :', june.year === '26' && !june.files[NEXT]);
+console.log('27 from 1 July 2027               :', july.year === '27' && !!july.files[NEXT] && !july.files[ID.acc]);
+const y = S.schoolYear;
+console.log('school years begin 1 July         :', typeof y === 'function' && y(new Date(2026, 6, 1)) === 26 && y(new Date(2026, 5, 30)) === 25 && y(new Date(2027, 0, 5)) === 26);
 const err = (props, books, rows) => server(props, books).docNames();
 const noNum = ROWS.map(x => x.filter((_, i) => HEAD[i] !== 'num'));
 console.log('no DOCS_ID is said, not empty     :', /DOCS_ID is not set/.test(err({}, {}).error || ''));
