@@ -223,6 +223,20 @@ const CASES = [
     test: 'test-docnames.js'
   },
   {
+    what: 'a year not yet begun is not this year',
+    file: 'apps-script/Sync.gs',
+    from: "yr(rows[i]) > year && yr(rows[i]) <= now) year = yr(rows[i]);",
+    to:   "yr(rows[i]) > year) year = yr(rows[i]);",
+    test: 'test-docnames.js'
+  },
+  {
+    what: 'the school year turns on 1 July',
+    file: 'apps-script/Sync.gs',
+    from: '(d.getMonth() < 6 ? 1 : 0)',
+    to:   '(d.getMonth() < 7 ? 1 : 0)',
+    test: 'test-docnames.js'
+  },
+  {
     what: 'a missing docs column is an error, not an empty list',
     file: 'apps-script/Sync.gs',
     from: "if (missing.length) return {ok: false, error: 'the docs workbook has no '",
