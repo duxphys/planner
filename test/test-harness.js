@@ -84,6 +84,13 @@ const CASES = [
     test: 'test-publish.js'
   },
   {
+    what: 'the new week goes up on Sunday morning',
+    file: 'apps-script/Sync.gs',
+    from: 'var ROLL_DAY = 0, ROLL_HOUR = 5;',
+    to:   'var ROLL_DAY = 1, ROLL_HOUR = 5;',
+    test: 'test-publish.js'
+  },
+  {
     what: 'the version guard is not disarmed by a queued edit',
     file: 'sync.js',
     from: 'if (queue[rec.key] !== undefined) continue;',

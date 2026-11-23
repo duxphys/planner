@@ -21,7 +21,7 @@
 /* Bumped whenever this file changes, and reported by ?check=1. Saving in the
    editor does not change what /exec serves — only deploying does — so there
    has to be a way to see which code is actually live. */
-var VERSION = 'v51 2026-10-13';
+var VERSION = 'v52 2026-11-22';
 
 var REC_TAB = '_Records';
 var MAX_ROWS = 20000;
@@ -253,11 +253,16 @@ function noteTextOf(lines) {
 
 /**
  * The last date students may see: the Friday of the current week, where the
- * week turns over at 5am on Monday rather than at midnight. Sunday evening
- * still shows the week just gone; Monday breakfast shows the new one whole.
+ * week turns over at 5am on Sunday (Tyler, 22 Nov; it was Monday at 5am until
+ * v52). Saturday still shows the week just gone; by Sunday breakfast the new
+ * one is up whole. Knobs: ROLL_DAY (0 Sunday, 1 Monday) and ROLL_HOUR. The
+ * fifteen-minute publish trigger is what puts it up, so it lands within
+ * fifteen minutes of the hour.
  */
 function horizonISO(now) {
-  var d = new Date(now.getTime() - 5 * 3600 * 1000);   // shift the rollover
+  var ROLL_DAY = 0, ROLL_HOUR = 5;                     // Sunday, 5am
+  var shift = ((8 - ROLL_DAY) % 7) * 24 - ROLL_HOUR;    // the rollover lands on Monday 00:00
+  var d = new Date(now.getTime() + shift * 3600 * 1000);
   var dow = d.getDay();                                // 0 Sun .. 6 Sat
   var back = (dow + 6) % 7;                            // days since Monday
   var mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
